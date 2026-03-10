@@ -1,0 +1,2308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="robots" content="noindex, nofollow"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kingdom of Azzuria</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1510; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+    ::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.3); border-radius: 3px; }
+    input, textarea, select, button { font-family: Georgia, serif; }
+    html, body { width: 100%; max-width: 100vw; overflow-x: hidden; }
+    #root { width: 100%; max-width: 100vw; overflow-x: hidden; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ── JSONbin sync ──────────────────────────────────────────────
+    const JSONBIN_ACCESS_KEY = "$2a$10$3JtHn/gcoRd13EULKH3dGOjj0hzINO967yxNCfoEfLqvdXyEiJJxu";
+    const JSONBIN_BIN_ID = "69ac98d3d0ea881f40fa3593"; // hardcoded — shared bin for all users
+
+    async function jsonbinSave(state) {
+      const body = JSON.stringify(state);
+      const res  = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+        method: "PUT",
+        headers: { "Content-Type":"application/json", "X-Access-Key": JSONBIN_ACCESS_KEY },
+        body,
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error("JSONbin update failed:", res.status, txt);
+        return null;
+      }
+      return JSONBIN_BIN_ID;
+    }
+
+    async function jsonbinLoad() {
+      const res  = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest?t=${Date.now()}`, {
+        headers: { "X-Access-Key": JSONBIN_ACCESS_KEY, "Cache-Control": "no-cache" },
+        cache: "no-store",
+      });
+      const data = await res.json();
+      return data.record || null;
+    }
+    // ─────────────────────────────────────────────────────────────
+
+// v7 - seasons, national unrest, integer literacy, regions tab
+
+
+const CLASSES  = ["Nobles","Bureaucrats","Merchants","Industrialists","Church","Intellectuals","Rural Workers","Factory Workers"];
+const REGIONS  = ["Valdorenza","Montecastre","Colleverdi","Rocchevalle","Pietramonforte","Sestria","Castelfalco","Varazzino","Mombarcaro","Torremezzo","Fontaniglia","Rivoltasso","Verre","Cassinasco"];
+const CLASS_COLORS = ["#c9a84c","#7a9cc4","#6db87a","#c47a5a","#9b7fba","#c4a96b","#8fae7a","#a08060"];
+const CAND_COLORS  = ["#7a9cc4","#c47a5a","#9b7fba","#6db87a","#c9a84c","#e08060","#80c890","#a08060"];
+const ACTION_TYPES = ["Newspaper","Speech","Pamphlet","Rally","Private Meeting"];
+const BASE_ACTIONS = 3;
+const TARGET = 30;
+const SEASONS = ["Spring","Summer","Autumn","Winter"];
+
+
+// All 204 historical colleges, each mapped to its division index
+const COLLEGES = [
+  // Valdorenza (0) — 25
+  {n:"Villasora I",r:0},{n:"Villasora II",r:0},{n:"Villasora III",r:0},{n:"Villasora IV",r:0},{n:"Villasora V",r:0},
+  {n:"Villasora VI",r:0},{n:"Villasora VII",r:0},{n:"Villasora VIII",r:0},{n:"Villasora IX",r:0},{n:"Villasora X",r:0},
+  {n:"Villasora XI",r:0},{n:"Villasora XII",r:0},{n:"Villasora XIII",r:0},{n:"Villasora XIV",r:0},{n:"Villasora XV",r:0},
+  {n:"Villasora XVI",r:0},{n:"Villasora XVII",r:0},{n:"Villasora XVIII",r:0},{n:"Villasora XIX",r:0},{n:"Villasora XX",r:0},
+  {n:"Villasora XXI",r:0},{n:"Mezzana I",r:0},{n:"Mezzana II",r:0},{n:"Mezzana III",r:0},{n:"Mezzana IV",r:0},
+  // Montecastre (1) — 24
+  {n:"Mezzana V",r:1},{n:"Mezzana VI",r:1},{n:"Mezzana VII",r:1},{n:"Mezzana VIII",r:1},{n:"Mezzana IX",r:1},
+  {n:"Mezzana X",r:1},{n:"Mezzana XI",r:1},{n:"Mezzana XII",r:1},{n:"Mezzana XIII",r:1},{n:"Mezzana XIV",r:1},
+  {n:"Mezzana XV",r:1},{n:"Mezzana XVI",r:1},{n:"Mezzana XVII",r:1},{n:"Mezzana XVIII",r:1},{n:"Mezzana XIX",r:1},
+  {n:"Mezzana XX",r:1},{n:"Mezzana XXI",r:1},{n:"Pontarola I",r:1},{n:"Pontarola II",r:1},{n:"Pontarola III",r:1},
+  {n:"Pontarola IV",r:1},{n:"Pontarola V",r:1},{n:"Pontarola VI",r:1},{n:"Pontarola VII",r:1},
+  // Colleverdi (2) — 12
+  {n:"Pontarola VIII",r:2},{n:"Pontarola IX",r:2},{n:"Pontarola X",r:2},{n:"Pontarola XI",r:2},
+  {n:"Pontarola XII",r:2},{n:"Pontarola XIII",r:2},{n:"Pontarola XIV",r:2},{n:"Pontarola XV",r:2},
+  {n:"Pontarola XVI",r:2},{n:"Pontarola XVII",r:2},{n:"Pontarola XVIII",r:2},{n:"Pontarola XIX",r:2},
+  // Rocchevalle (3) — 19
+  {n:"Pontarola XX",r:3},{n:"Pontarola XXI",r:3},{n:"Lochiaro I",r:3},{n:"Lochiaro II",r:3},{n:"Lochiaro III",r:3},
+  {n:"Lochiaro IV",r:3},{n:"Lochiaro V",r:3},{n:"Lochiaro VI",r:3},{n:"Lochiaro VII",r:3},
+  {n:"Lochiaro VIII",r:3},{n:"Lochiaro IX",r:3},{n:"Lochiaro X",r:3},{n:"Lochiaro XI",r:3},
+  {n:"Lochiaro XII",r:3},{n:"Lochiaro XIII",r:3},{n:"Lochiaro XIV",r:3},{n:"Lochiaro XV",r:3},{n:"Lochiaro XVI",r:3},{n:"Lochiaro XVII",r:3},
+  // Pietramonforte (4) — 24
+  {n:"Lochiaro XVIII",r:4},{n:"Lochiaro XIX",r:4},{n:"Lochiaro XX",r:4},{n:"Lochiaro XXI",r:4},{n:"Barlento I",r:4},
+  {n:"Barlento II",r:4},{n:"Barlento III",r:4},{n:"Barlento IV",r:4},{n:"Barlento V",r:4},{n:"Barlento VI",r:4},
+  {n:"Barlento VII",r:4},{n:"Barlento VIII",r:4},{n:"Barlento IX",r:4},{n:"Barlento X",r:4},{n:"Barlento XI",r:4},
+  {n:"Barlento XII",r:4},{n:"Barlento XIII",r:4},{n:"Barlento XIV",r:4},{n:"Barlento XV",r:4},{n:"Barlento XVI",r:4},
+  {n:"Barlento XVII",r:4},{n:"Barlento XVIII",r:4},{n:"Barlento XIX",r:4},{n:"Barlento XX",r:4},
+  // Sestria (5) — 11
+  {n:"Ceranza I",r:5},{n:"Ceranza II",r:5},{n:"Ceranza III",r:5},{n:"Ceranza IV",r:5},{n:"Ceranza V",r:5},
+  {n:"Ceranza VI",r:5},{n:"Ceranza VII",r:5},{n:"Ceranza VIII",r:5},{n:"Ceranza IX",r:5},{n:"Ceranza X",r:5},{n:"Ceranza XI",r:5},
+  // Castelfalco (6) — 20
+  {n:"Ceranza XII",r:6},{n:"Ceranza XIII",r:6},{n:"Ceranza XIV",r:6},{n:"Ceranza XV",r:6},{n:"Ceranza XVI",r:6},
+  {n:"Ceranza XVII",r:6},{n:"Ceranza XVIII",r:6},{n:"Ceranza XIX",r:6},{n:"Ceranza XX",r:6},{n:"Scafona I",r:6},
+  {n:"Scafona II",r:6},{n:"Scafona III",r:6},{n:"Scafona IV",r:6},{n:"Scafona V",r:6},{n:"Scafona VI",r:6},
+  {n:"Scafona VII",r:6},{n:"Scafona VIII",r:6},{n:"Scafona IX",r:6},{n:"Scafona X",r:6},{n:"Scafona XI",r:6},
+  // Varazzino (7) — 10
+  {n:"Scafona XII",r:7},{n:"Scafona XIII",r:7},{n:"Scafona XIV",r:7},{n:"Scafona XV",r:7},{n:"Scafona XVI",r:7},
+  {n:"Scafona XVII",r:7},{n:"Scafona XVIII",r:7},{n:"Scafona XIX",r:7},{n:"Scafona XX",r:7},{n:"Finento I",r:7},
+  // Mombarcaro (8) — 9
+  {n:"Finento II",r:8},{n:"Finento III",r:8},{n:"Finento IV",r:8},{n:"Finento V",r:8},{n:"Finento VI",r:8},
+  {n:"Finento VII",r:8},{n:"Finento VIII",r:8},{n:"Finento IX",r:8},{n:"Finento X",r:8},
+  // Torremezzo (9) — 16
+  {n:"Finento XI",r:9},{n:"Finento XII",r:9},{n:"Finento XIII",r:9},{n:"Finento XIV",r:9},{n:"Finento XV",r:9},
+  {n:"Finento XVI",r:9},{n:"Finento XVII",r:9},{n:"Finento XVIII",r:9},{n:"Finento XIX",r:9},{n:"Finento XX",r:9},
+  {n:"Larpoulle I",r:9},{n:"Larpoulle II",r:9},{n:"Larpoulle III",r:9},{n:"Larpoulle IV",r:9},{n:"Larpoulle V",r:9},{n:"Larpoulle VI",r:9},
+  // Fontaniglia (10) — 10
+  {n:"Larpoulle VII",r:10},{n:"Larpoulle VIII",r:10},{n:"Larpoulle IX",r:10},{n:"Larpoulle X",r:10},{n:"Larpoulle XI",r:10},
+  {n:"Larpoulle XII",r:10},{n:"Larpoulle XIII",r:10},{n:"Larpoulle XIV",r:10},{n:"Larpoulle XV",r:10},{n:"Larpoulle XVI",r:10},
+  // Rivoltasso (11) — 12
+  {n:"Larpoulle XVII",r:11},{n:"Larpoulle XVIII",r:11},{n:"Larpoulle XIX",r:11},{n:"Larpoulle XX",r:11},{n:"Vantoux I",r:11},
+  {n:"Vantoux II",r:11},{n:"Vantoux III",r:11},{n:"Vantoux IV",r:11},{n:"Vantoux V",r:11},
+  {n:"Vantoux VI",r:11},{n:"Vantoux VII",r:11},{n:"Vantoux VIII",r:11},
+  // Verre (12) — 7
+  {n:"Vantoux IX",r:12},{n:"Vantoux X",r:12},{n:"Vantoux XI",r:12},{n:"Vantoux XII",r:12},{n:"Vantoux XIII",r:12},
+  {n:"Vantoux XIV",r:12},{n:"Vantoux XV",r:12},
+  // Cassinasco (13) — 5
+  {n:"Vantoux XVI",r:13},{n:"Vantoux XVII",r:13},{n:"Vantoux XVIII",r:13},{n:"Vantoux XIX",r:13},{n:"Vantoux XX",r:13},
+];
+
+const INITIAL_DATA = [
+  // Val  Mon  Col  Roc  Pie  Ses  Cas  Var  Mom  Tor  Fon  Riv  Ver  Cas
+  [  4,   2,   6,   4,   5,   3,   5,   5,   5,   5,   2,   5,   4,   3 ], // Nobles
+  [  8,   4,   4,   5,   3,   4,   3,   3,   4,   3,   3,   6,   3,   2 ], // Bureaucrats
+  [  4,   9,   3,   5,   2,   7,   3,   2,   2,   2,   6,   3,   2,   1 ], // Merchants
+  [  6,   5,   1,   2,   1,   2,   2,   1,   2,   1,   4,   1,   1,   1 ], // Industrialists
+  [  2,   3,   6,   3,   5,   4,   5,   7,   5,   5,   3,   7,   9,   9 ], // Church
+  [  3,   5,   2,   3,   2,   3,   2,   2,   2,   2,   3,   3,   2,   1 ], // Intellectuals
+  [  1,   1,   6,   4,   8,   4,   6,   7,   6,   7,   5,   3,   7,   9 ], // Rural Workers
+  [  2,   1,   2,   4,   4,   3,   4,   3,   4,   5,   4,   2,   2,   4 ], // Factory Workers
+];
+
+
+// Val  Mon  Col  Roc  Pie  Ses  Cas  Var  Mom  Tor  Fon  Riv  Ver  Cas
+const REGION_SEATS = [25,  24,  12,  19,  24,  11,  20,  10,   9,  16,  10,  12,   7,   5];
+const TOTAL_SEATS = 204;
+const MAJORITY = 103;
+const SENATE_SEATS_PER_REGION = 2;
+const SENATE_TOTAL = 28; // 2 per division × 14 divisions
+const SENATE_MAJORITY = 15;
+
+
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+const getSeason = (turn) => SEASONS[(turn - 1) % 4];
+const getYear   = (turn) => 1848 + Math.floor((turn - 1) / 4);
+
+// Integer literacy: 1 = Low, 2 = Average, 3 = High
+const litLevel = (data, col) => {
+  const raw = data[5][col] * 3 + data[1][col] - data[4][col] * 0.5 + 5;
+  const score = raw / 15;
+  if (score < 0.75) return { n:1, label:"Low",     color:"#c47a5a" };
+  if (score < 1.35) return { n:2, label:"Average",  color:"#c9a84c" };
+  return                    { n:3, label:"High",    color:"#6db87a" };
+};
+
+// National unrest: auto-derived from agitation
+// Restless (3-4) = +1 each, Agitated (5-6) = +2 each, capped 0-10
+const calcNatUnrest = (agitation) => {
+  const restless = agitation.filter(a => a >= 3 && a < 5).length;
+  const agitated = agitation.filter(a => a >= 5).length;
+  return Math.min(10, restless + agitated * 2);
+};
+
+const unrestInfo = (u) => {
+  if (u <= 1) return { label:"Calm",     color:"#6db87a", desc:"No effect" };
+  if (u <= 3) return { label:"Tense",    color:"#c9a84c", desc:"Campaign actions cost +1 action" };
+  if (u <= 6) return { label:"Volatile", color:"#c47a5a", desc:"-2 popularity for all candidates nationally" };
+  return             { label:"Crisis",   color:"#c4605a", desc:"Laws cause double agitation -- revolution risk" };
+};
+
+const agitPhase = (s) => {
+  if (s <= 2) return { label:"Content",  color:"#6db87a", bg:"rgba(80,160,100,0.12)",  border:"rgba(80,160,100,0.35)"  };
+  if (s <= 4) return { label:"Restless", color:"#c9a84c", bg:"rgba(201,168,76,0.12)",  border:"rgba(201,168,76,0.35)"  };
+  return             { label:"Agitated", color:"#c4605a", bg:"rgba(200,80,60,0.12)",   border:"rgba(200,80,60,0.35)"   };
+};
+
+const popColor = (v) => {
+  if (v > 8)   return "#6db87a";
+  if (v > 4)   return "#8fae7a";
+  if (v > 0)   return "#c4a96b";
+  if (v === 0) return "#a09070";
+  if (v > -4)  return "#c4a84c";
+  if (v > -8)  return "#c47a5a";
+  return "#c4605a";
+};
+
+const calcPopularity = (cand, data, agitation, natUnrest) =>
+  REGIONS.map((_, rIdx) => {
+    let score = 0;
+    const lit  = litLevel(data, rIdx).n;
+    const base = cand.classBase || [];
+    cand.laws.forEach(law => law.effects.forEach(({classIdx, type}) => {
+      const inf  = data[classIdx][rIdx];
+      const agit = agitation[classIdx] >= 5;
+      const mult = base.includes(classIdx) ? 2 : 1;
+      if (type === "bonus") score += inf * mult;
+      if (type === "malus") score -= (agit ? inf : Math.floor(inf / 2)) * mult;
+    }));
+    (cand.actions || []).forEach(a => {
+      score += (a.bonuses[rIdx] || 0) * lit;
+    });
+    const ur = unrestInfo(natUnrest);
+    if (ur.label === "Volatile" || ur.label === "Crisis") score -= 2;
+    return Math.round(score);
+  });
+
+// ── shared styles ─────────────────────────────────────────────────────────────
+
+const PAGE = {
+  minHeight:"100vh", width:"100%", boxSizing:"border-box", overflowX:"hidden", background:"#1a1510",
+  backgroundImage:"radial-gradient(ellipse at 20% 20%, #2a1f0e 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, #0e1a20 0%, transparent 60%)",
+  fontFamily:"Georgia, serif", color:"#e8dcc8",
+};
+const GOLD = "#c9a84c", DIM = "#7a6a4a", SOFT = "#a09070";
+const INPUT = {
+  padding:"10px 14px", background:"rgba(255,255,255,0.05)",
+  border:"1px solid rgba(255,255,255,0.1)", borderRadius:"4px",
+  color:"#e8dcc8", fontSize:"13px", fontFamily:"Georgia,serif",
+  outline:"none", letterSpacing:"1px", boxSizing:"border-box", width:"100%",
+};
+
+function SecBar({children}) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"14px"}}>
+      <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.06)"}}/>
+      <span style={{fontSize:"10px",letterSpacing:"4px",color:DIM,textTransform:"uppercase",flexShrink:0}}>{children}</span>
+      <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.06)"}}/>
+    </div>
+  );
+}
+
+function ProgressBar({value, max, color}) {
+  return (
+    <div style={{height:"4px",background:"rgba(255,255,255,0.07)",borderRadius:"2px",overflow:"hidden"}}>
+      <div style={{width:Math.min(100,(value/max)*100)+"%",height:"100%",background:color,borderRadius:"2px",transition:"width 0.3s"}}/>
+    </div>
+  );
+}
+
+function AdjBtn({onClick, children, red}) {
+  return (
+    <button onClick={onClick} style={{
+      width:"20px", height:"20px", cursor:"pointer", fontSize:"13px", lineHeight:"1",
+      padding:0, borderRadius:"3px", flexShrink:0, fontFamily:"Georgia,serif",
+      background:red?"rgba(200,80,60,0.2)":"rgba(80,160,100,0.2)",
+      border:`1px solid ${red?"rgba(200,80,60,0.3)":"rgba(80,160,100,0.3)"}`,
+      color:red?"#e08060":"#80c890",
+    }}>{children}</button>
+  );
+}
+
+// ── SEASON HEADER ─────────────────────────────────────────────────────────────
+
+function SeasonHeader({turn, natUnrest, agitation, candidates}) {
+  const season   = getSeason(turn);
+  const year     = getYear(turn);
+  const ur       = unrestInfo(natUnrest);
+  const agCount  = agitation.filter(a => a >= 5).length;
+  const restCount = agitation.filter(a => a >= 3 && a < 5).length;
+
+  const seasonIcon = {Spring:"~",Summer:"*",Autumn:"o",Winter:"-"}[season];
+  const seasonColor = {Spring:"#8fae7a",Summer:"#c9a84c",Autumn:"#c47a5a",Winter:"#7ab0d0"}[season];
+
+  return (
+    <div style={{background:"rgba(0,0,0,0.25)",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"12px 24px",display:"flex",alignItems:"center",flexWrap:"wrap",gap:"16px",justifyContent:"space-between"}}>
+      {/* season + year */}
+      <div style={{display:"flex",alignItems:"baseline",gap:"10px"}}>
+        <span style={{fontSize:"10px",color:seasonColor,letterSpacing:"3px",textTransform:"uppercase"}}>{seasonIcon} {season}</span>
+        <span style={{fontSize:"20px",color:"#e8dcc8",letterSpacing:"2px",fontWeight:"normal"}}>{year}</span>
+        <span style={{fontSize:"10px",color:DIM,letterSpacing:"2px",textTransform:"uppercase"}}>Turn {turn}</span>
+      </div>
+      {/* unrest */}
+      <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+          <span style={{fontSize:"10px",color:DIM,letterSpacing:"2px",textTransform:"uppercase"}}>National Unrest</span>
+          <div style={{width:"80px",height:"5px",background:"rgba(255,255,255,0.07)",borderRadius:"3px",overflow:"hidden"}}>
+            <div style={{width:(natUnrest/10*100)+"%",height:"100%",background:ur.color,borderRadius:"3px",transition:"width 0.4s"}}/>
+          </div>
+          <span style={{fontSize:"13px",fontWeight:"bold",color:ur.color,minWidth:"28px"}}>{natUnrest}/10</span>
+          <span style={{fontSize:"10px",color:ur.color,letterSpacing:"2px",textTransform:"uppercase",border:`1px solid ${ur.color}44`,padding:"1px 6px",borderRadius:"3px"}}>{ur.label}</span>
+        </div>
+        {agCount > 0 && <span style={{fontSize:"10px",color:"#c4605a",letterSpacing:"2px",textTransform:"uppercase"}}>{agCount} Agitated</span>}
+        {restCount > 0 && <span style={{fontSize:"10px",color:"#c9a84c",letterSpacing:"2px",textTransform:"uppercase"}}>{restCount} Restless</span>}
+      </div>
+      {/* actions */}
+      <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
+        {candidates.map(c => {
+          const left = c.actionsLeft ?? BASE_ACTIONS;
+          return (
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:"5px"}}>
+              <span style={{display:"inline-block",width:"6px",height:"6px",borderRadius:"50%",background:c.color}}/>
+              <span style={{fontSize:"10px",color:c.color,letterSpacing:"1px"}}>{c.name}</span>
+              <div style={{display:"flex",gap:"2px"}}>
+                {Array.from({length:BASE_ACTIONS},(_,i) => (
+                  <div key={i} style={{width:"6px",height:"6px",borderRadius:"2px",background:i<left?c.color:"rgba(255,255,255,0.1)"}}/>
+                ))}
+              </div>
+              <span style={{fontSize:"10px",color:left>0?"#6db87a":"#c4605a"}}>{left}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── TAB BAR ───────────────────────────────────────────────────────────────────
+
+function TabBar({active, onChange}) {
+  const TABS = [
+    {icon:"map",   label:"Regions"},
+    {icon:"vote",  label:"Candidates"},
+    {icon:"state", label:"Game State"},
+    {icon:"table", label:"Influence"},
+    {icon:"book",  label:"Law Registry"},
+    {icon:"vote",  label:"Election"},
+    {icon:"govt",  label:"Government"},
+  ];
+  return (
+    <div style={{display:"flex",justifyContent:"center",gap:"3px",padding:"12px 16px",background:"rgba(0,0,0,0.15)",borderBottom:"1px solid rgba(255,255,255,0.05)",flexWrap:"wrap"}}>
+      {TABS.map((t, i) => (
+        <button key={i} onClick={() => onChange(i)} style={{
+          padding:"8px 16px", cursor:"pointer", fontFamily:"Georgia,serif",
+          fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", borderRadius:"4px",
+          background:active===i?"rgba(201,168,76,0.15)":"transparent",
+          border:`1px solid ${active===i?"rgba(201,168,76,0.45)":"rgba(255,255,255,0.07)"}`,
+          color:active===i?GOLD:SOFT,
+        }}>{t.label}</button>
+      ))}
+    </div>
+  );
+}
+
+// ── REGION CARD MODAL ─────────────────────────────────────────────────────────
+
+function RegionModal({rIdx, candidates, data, agitation, natUnrest, onClose}) {
+  const region   = REGIONS[rIdx];
+  const lit      = litLevel(data, rIdx);
+  const ur       = unrestInfo(natUnrest);
+  const rows     = [...candidates]
+    .map(c => ({c, score: calcPopularity(c, data, agitation, natUnrest)[rIdx]}))
+    .sort((a,b) => b.score - a.score);
+
+  return (
+    <div onClick={onClose}
+      style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
+      <div onClick={e => e.stopPropagation()}
+        style={{background:"#1e1a12",border:"1px solid rgba(201,168,76,0.3)",borderRadius:"8px",padding:"28px 32px",minWidth:"300px",maxWidth:"480px",width:"90%",boxShadow:"0 20px 60px rgba(0,0,0,0.8)"}}>
+        <div style={{textAlign:"center",marginBottom:"20px"}}>
+          <div style={{fontSize:"10px",letterSpacing:"5px",color:GOLD,textTransform:"uppercase",opacity:.7,marginBottom:"6px"}}>Kingdom of Azzuria</div>
+          <div style={{fontSize:"24px",color:"#e8dcc8",letterSpacing:"3px",textTransform:"uppercase",marginBottom:"10px"}}>{region}</div>
+          <div style={{display:"flex",justifyContent:"center",gap:"10px",flexWrap:"wrap"}}>
+            <span style={{fontSize:"10px",color:lit.color,letterSpacing:"2px",textTransform:"uppercase",border:`1px solid ${lit.color}44`,padding:"2px 8px",borderRadius:"3px"}}>Literacy {lit.label} (x{lit.n})</span>
+            <span style={{fontSize:"10px",color:ur.color,letterSpacing:"2px",textTransform:"uppercase",border:`1px solid ${ur.color}44`,padding:"2px 8px",borderRadius:"3px"}}>Unrest {natUnrest}/10</span>
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <div style={{textAlign:"center",color:DIM,fontSize:"11px",letterSpacing:"2px",padding:"16px"}}>No candidates yet</div>
+        ) : rows.map(({c, score}, i) => (
+          <div key={c.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",marginBottom:"6px",
+            background:i===0?"rgba(201,168,76,0.08)":"rgba(255,255,255,0.02)",
+            border:`1px solid ${i===0?"rgba(201,168,76,0.3)":"rgba(255,255,255,0.06)"}`,borderRadius:"4px"}}>
+            <span style={{fontSize:"14px",minWidth:"24px",textAlign:"center",color:i===0?GOLD:DIM}}>{i===0?"*":"#"+(i+1)}</span>
+            <span style={{display:"inline-block",width:"8px",height:"8px",borderRadius:"50%",background:c.color,flexShrink:0}}/>
+            <span style={{flex:1,fontSize:"13px",color:c.color,letterSpacing:"1px"}}>{c.name}</span>
+            <span style={{fontSize:"22px",fontWeight:"bold",color:popColor(score)}}>{score>0?"+"+score:score}</span>
+          </div>
+        ))}
+        <div style={{textAlign:"center",marginTop:"16px"}}>
+          <button onClick={onClose} style={{padding:"7px 20px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"4px",color:SOFT,cursor:"pointer",fontSize:"11px",letterSpacing:"2px",fontFamily:"Georgia,serif"}}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── REGIONS TAB ───────────────────────────────────────────────────────────────
+
+function RegionsTab({candidates, data, agitation, natUnrest}) {
+  const [selRegion, setSelRegion] = useState(null);
+
+  return (
+    <div style={{padding:"28px 24px",maxWidth:"1000px",margin:"0 auto"}}>
+      {selRegion !== null && (
+        <RegionModal rIdx={selRegion} candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} onClose={() => setSelRegion(null)}/>
+      )}
+
+      <div style={{textAlign:"center",marginBottom:"28px"}}>
+        <div style={{fontSize:"10px",letterSpacing:"6px",color:GOLD,textTransform:"uppercase",marginBottom:"6px",opacity:.8}}>Electoral Map</div>
+        <div style={{fontSize:"28px",fontWeight:"normal",color:"#e8dcc8",letterSpacing:"3px",textTransform:"uppercase",marginBottom:"4px"}}>Kingdom of Azzuria</div>
+        <div style={{fontSize:"10px",color:SOFT,letterSpacing:"3px",textTransform:"uppercase"}}>Click any region to see candidate standings</div>
+        <div style={{width:"80px",height:"1px",background:"linear-gradient(to right,transparent,"+GOLD+",transparent)",margin:"14px auto 0"}}/>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:"10px"}}>
+        {REGIONS.map((r, rIdx) => {
+          const lit    = litLevel(data, rIdx);
+          const allPops = candidates.map(c => ({c, score: calcPopularity(c, data, agitation, natUnrest)[rIdx]})).sort((a,b) => b.score-a.score);
+          const leader  = allPops[0];
+          const ur      = unrestInfo(natUnrest);
+
+          return (
+            <div key={r}
+              onClick={() => setSelRegion(rIdx)}
+              onMouseEnter={e => { e.currentTarget.style.borderColor="rgba(201,168,76,0.5)"; e.currentTarget.style.background="rgba(201,168,76,0.06)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor="rgba(255,255,255,0.08)"; e.currentTarget.style.background="rgba(255,255,255,0.02)"; }}
+              style={{
+                background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.08)",
+                borderRadius:"6px", padding:"16px", cursor:"pointer", transition:"all 0.15s",
+              }}>
+              <div style={{fontSize:"14px",color:"#e8dcc8",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"10px"}}>{r}</div>
+              <div style={{display:"flex",gap:"6px",marginBottom:"10px",flexWrap:"wrap"}}>
+                <span style={{fontSize:"9px",color:lit.color,letterSpacing:"2px",textTransform:"uppercase",padding:"1px 6px",border:`1px solid ${lit.color}44`,borderRadius:"3px"}}>Lit {lit.label}</span>
+              </div>
+              {leader ? (
+                <div>
+                  <div style={{fontSize:"9px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Leading</div>
+                  <div style={{display:"flex",alignItems:"center",gap:"7px"}}>
+                    <span style={{display:"inline-block",width:"7px",height:"7px",borderRadius:"50%",background:leader.c.color}}/>
+                    <span style={{fontSize:"11px",color:leader.c.color,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leader.c.name}</span>
+                    <span style={{fontSize:"15px",fontWeight:"bold",color:popColor(leader.score)}}>{leader.score>0?"+"+leader.score:leader.score}</span>
+                  </div>
+                  {allPops.length > 1 && (
+                    <div style={{marginTop:"8px",display:"flex",flexDirection:"column",gap:"3px"}}>
+                      {allPops.slice(1).map(({c, score}) => (
+                        <div key={c.id} style={{display:"flex",alignItems:"center",gap:"6px",opacity:.65}}>
+                          <span style={{display:"inline-block",width:"5px",height:"5px",borderRadius:"50%",background:c.color}}/>
+                          <span style={{fontSize:"10px",color:c.color,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                          <span style={{fontSize:"11px",fontWeight:"bold",color:popColor(score)}}>{score>0?"+"+score:score}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{fontSize:"10px",color:"#5a4a30",letterSpacing:"2px",fontStyle:"italic"}}>No candidates</div>
+              )}
+              <div style={{marginTop:"10px",display:"flex",justifyContent:"flex-end"}}>
+                <span style={{fontSize:"9px",color:DIM,letterSpacing:"2px"}}>Click to expand</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* head to head mini table */}
+      {candidates.length > 0 && (
+        <div style={{marginTop:"36px"}}>
+          <SecBar>All Regions at a Glance</SecBar>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"separate",borderSpacing:"3px"}}>
+              <thead>
+                <tr>
+                  <th style={{padding:"8px 12px",textAlign:"left",fontSize:"10px",letterSpacing:"2px",color:DIM,textTransform:"uppercase",fontWeight:"normal",minWidth:"100px"}}>Candidate</th>
+                  {REGIONS.map((r,i) => (
+                    <th key={r}
+                      onClick={() => setSelRegion(i)}
+                      onMouseEnter={e => { e.currentTarget.style.color=GOLD; e.currentTarget.style.cursor="pointer"; }}
+                      onMouseLeave={e => { e.currentTarget.style.color=DIM; }}
+                      style={{padding:"8px 4px",textAlign:"center",fontSize:"10px",letterSpacing:"1px",color:DIM,textTransform:"uppercase",fontWeight:"normal",minWidth:"72px",cursor:"pointer"}}>
+                      {r}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map(c => {
+                  const pops = calcPopularity(c, data, agitation, natUnrest);
+                  return (
+                    <tr key={c.id}>
+                      <td style={{padding:"3px 12px",fontSize:"11px",color:c.color,whiteSpace:"nowrap"}}>
+                        <span style={{display:"inline-block",width:"7px",height:"7px",borderRadius:"50%",background:c.color,marginRight:"7px",verticalAlign:"middle"}}/>{c.name}
+                      </td>
+                      {pops.map((score, i) => (
+                        <td key={i} style={{padding:"3px"}}>
+                          <div
+                            onClick={() => setSelRegion(i)}
+                            style={{textAlign:"center",padding:"8px 4px",borderRadius:"4px",background:popColor(score)+"15",border:`1px solid ${popColor(score)}33`,fontSize:"13px",fontWeight:"bold",color:popColor(score),cursor:"pointer"}}>
+                            {score > 0 ? "+"+score : score}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── CANDIDATES TAB ────────────────────────────────────────────────────────────
+
+function CandidatesTab({data, setData, candidates, setCandidates, activeCand, setActiveCand, agitation, setAgitation, natUnrest, pendingParties, setPendingParties}) {
+  const [newCandName, setNewCandName] = useState("");
+  const [newLawName,  setNewLawName]  = useState("");
+  const [newLawDesc,  setNewLawDesc]  = useState("");
+  const [newLawFx,    setNewLawFx]    = useState(CLASSES.map(() => "neutral"));
+  const [showLawForm, setShowLawForm] = useState(false);
+  const [showActForm, setShowActForm] = useState(false);
+  const [newActName,  setNewActName]  = useState("");
+  const [newActType,  setNewActType]  = useState("Newspaper");
+  const [newActBon,   setNewActBon]   = useState(REGIONS.map(() => 0));
+  const [selRegion,   setSelRegion]   = useState(null);
+
+  const addCand = () => {
+    const name = newCandName.trim(); if (!name) return;
+    const id = Date.now(), color = CAND_COLORS[candidates.length % CAND_COLORS.length];
+    setCandidates(p => [...p, {id,name,color,laws:[],actions:[],actionsLeft:BASE_ACTIONS}]);
+    setActiveCand(id); setNewCandName("");
+  };
+  const removeCand = id => setCandidates(p => {
+    const n = p.filter(c => c.id !== id);
+    if (activeCand === id && n.length > 0) setActiveCand(n[0].id);
+    return n;
+  });
+  const updateCandColor = (id, color) => setCandidates(p => p.map(c => c.id===id ? {...c, color} : c));
+  const updateCandName  = (id, name)  => setCandidates(p => p.map(c => c.id===id ? {...c, name}  : c));
+  const addLaw = () => {
+    if (!newLawName.trim()) return;
+    const effects = newLawFx.map((e,i) => ({classIdx:i,type:e})).filter(e => e.type !== "neutral");
+    if (!effects.length) return;
+    setCandidates(p => p.map(c => c.id===activeCand
+      ? {...c, laws:[...c.laws,{id:Date.now(),name:newLawName.trim(),desc:newLawDesc.trim(),effects}]} : c));
+    // Apply agitation deltas immediately: bonus=-1, malus=+2, capped 0-6
+    setAgitation(prev => {
+      const next = [...prev];
+      effects.forEach(({classIdx, type}) => {
+        const delta = type==="bonus" ? -1 : +2;
+        next[classIdx] = Math.max(0, Math.min(6, next[classIdx] + delta));
+      });
+      return next;
+    });
+    // Apply influence delta: bonus=+1 to all regions, malus=-1, capped 1-10
+    setData(prev => {
+      const next = prev.map(row => [...row]);
+      effects.forEach(({classIdx, type}) => {
+        const delta = type==="bonus" ? +1 : -1;
+        next[classIdx] = next[classIdx].map(v => Math.max(1, Math.min(10, v + delta)));
+      });
+      return next;
+    });
+    setNewLawName(""); setNewLawDesc(""); setNewLawFx(CLASSES.map(()=>"neutral")); setShowLawForm(false);
+  };
+  const removeLaw    = lid => setCandidates(p => p.map(c => c.id===activeCand ? {...c, laws:c.laws.filter(l=>l.id!==lid)} : c));
+  const addAction = () => {
+    if (!newActName.trim() || newActBon.every(b=>b===0)) return;
+    setCandidates(p => p.map(c => c.id===activeCand
+      ? {...c, actions:[...(c.actions||[]),{id:Date.now(),name:newActName.trim(),type:newActType,bonuses:[...newActBon]}]} : c));
+    setNewActName(""); setNewActType("Newspaper"); setNewActBon(REGIONS.map(()=>0)); setShowActForm(false);
+  };
+  const removeAction = aid => setCandidates(p => p.map(c => c.id===activeCand
+    ? {...c, actions:(c.actions||[]).filter(a=>a.id!==aid)} : c));
+
+  const cand    = candidates.find(c => c.id === activeCand);
+  const myPop   = c => calcPopularity(c, data, agitation, natUnrest);
+  const hasContent = c => c.laws.length > 0 || (c.actions||[]).length > 0;
+
+  // Projected agitation after the current law form selections
+  const projectedAgit = CLASSES.map((_, i) => {
+    const fx = newLawFx[i];
+    const delta = fx==="bonus" ? -1 : fx==="malus" ? +2 : 0;
+    return Math.max(0, Math.min(6, agitation[i] + delta));
+  });
+
+  // Mini agitation bar used in law form
+  const AgitBar = ({current, projected, classIdx}) => {
+    const curPh  = agitPhase(current);
+    const projPh = agitPhase(projected);
+    const delta  = projected - current;
+    const changed = delta !== 0;
+    return (
+      <div style={{display:"flex",alignItems:"center",gap:"6px",flex:1}}>
+        {/* bar */}
+        <div style={{position:"relative",flex:1,height:"5px",background:"rgba(255,255,255,0.06)",borderRadius:"3px",overflow:"hidden"}}>
+          {/* current fill */}
+          <div style={{
+            position:"absolute",left:0,top:0,height:"100%",borderRadius:"3px",
+            width:(current/6*100)+"%",
+            background:curPh.color,
+            opacity: changed ? 0.35 : 0.9,
+            transition:"width .3s",
+          }}/>
+          {/* projected fill overlay */}
+          {changed && (
+            <div style={{
+              position:"absolute",left:0,top:0,height:"100%",borderRadius:"3px",
+              width:(projected/6*100)+"%",
+              background:projPh.color,
+              opacity:0.9,
+              transition:"width .3s",
+            }}/>
+          )}
+        </div>
+        {/* label */}
+        {changed ? (
+          <span style={{fontSize:"9px",whiteSpace:"nowrap",color:delta>0?"#c4605a":"#6db87a",fontWeight:"bold"}}>
+            {delta>0?"+"+delta:delta} → {projPh.label.slice(0,4)}
+          </span>
+        ) : (
+          <span style={{fontSize:"9px",whiteSpace:"nowrap",color:curPh.color,opacity:.7}}>{curPh.label.slice(0,4)}</span>
+        )}
+      </div>
+    );
+  };
+
+  // Agitation impact summary for an enacted law
+  const lawAgitSummary = law => law.effects.map(({classIdx, type}) => {
+    const delta = type==="bonus" ? -1 : +2;
+    return {classIdx, delta, label: CLASSES[classIdx]};
+  });
+
+  const smBtn = (active, onClick, label) => (
+    <button onClick={onClick} style={{
+      padding:"5px 12px", cursor:"pointer", fontFamily:"Georgia,serif", fontSize:"10px",
+      letterSpacing:"2px", textTransform:"uppercase", borderRadius:"4px",
+      background:active?"rgba(201,168,76,0.18)":"rgba(255,255,255,0.03)",
+      border:`1px solid ${active?"rgba(201,168,76,0.45)":"rgba(255,255,255,0.08)"}`,
+      color:active?GOLD:SOFT,
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={{padding:"24px 20px"}}>
+      {selRegion !== null && (
+        <RegionModal rIdx={selRegion} candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} onClose={() => setSelRegion(null)}/>
+      )}
+
+      {/* ── pending parties ── */}
+      {(pendingParties||[]).length > 0 && (
+        <div style={{marginBottom:"24px",padding:"16px",background:"rgba(196,120,60,0.04)",border:"1px solid rgba(196,120,60,0.18)",borderRadius:"6px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"12px"}}>
+            <span style={{fontSize:"9px",letterSpacing:"5px",color:"#c47a5a",textTransform:"uppercase"}}>Pending Approval</span>
+            <span style={{fontSize:"9px",color:"#c47a5a",border:"1px solid rgba(196,122,90,0.3)",borderRadius:"3px",padding:"1px 6px"}}>{pendingParties.length}</span>
+            <button onClick={async () => {
+              try {
+                const res = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
+                  headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
+                });
+                const d = await res.json();
+                if (d.record && Array.isArray(d.record.pendingParties)) {
+                  const localIds = new Set(pendingParties.map(p => p.id));
+                  const merged   = [...pendingParties, ...d.record.pendingParties.filter(p => !localIds.has(p.id))];
+                  setPendingParties(merged);
+                }
+              } catch(e) {}
+            }} style={{marginLeft:"auto",padding:"2px 10px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",background:"rgba(196,122,90,0.08)",border:"1px solid rgba(196,122,90,0.2)",borderRadius:"3px",color:"#c47a5a"}}>
+              ↻ Refresh
+            </button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+            {pendingParties.map(party => (
+              <div key={party.id} style={{padding:"12px 14px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderLeft:"3px solid "+party.color,borderRadius:"4px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"10px",marginBottom:"8px"}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:"7px",marginBottom:"4px"}}>
+                      <div style={{width:"8px",height:"8px",borderRadius:"50%",background:party.color,flexShrink:0}}/>
+                      <span style={{fontSize:"14px",color:party.color,letterSpacing:"1px"}}>{party.name}</span>
+                    </div>
+                    {party.desc && <div style={{fontSize:"11px",color:SOFT,fontStyle:"italic",marginBottom:"5px"}}>{party.desc}</div>}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px",marginBottom:"3px"}}>
+                      {(party.classBase||[]).map(i => (
+                        <span key={i} style={{fontSize:"8px",padding:"1px 7px",borderRadius:"3px",fontFamily:"Georgia,serif",
+                          background:CLASS_COLORS[i]+"18",border:"1px solid "+CLASS_COLORS[i]+"44",color:CLASS_COLORS[i]}}>
+                          {CLASSES[i]}
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px",marginBottom:"3px"}}>
+                      {(party.regions||[]).map(i => (
+                        <span key={i} style={{fontSize:"8px",padding:"1px 6px",borderRadius:"3px",background:"rgba(201,168,76,0.08)",border:"1px solid rgba(201,168,76,0.2)",color:GOLD}}>{REGIONS[i]}</span>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px"}}>
+                      {(party.tags||[]).map(t => (
+                        <span key={t} style={{fontSize:"8px",padding:"1px 6px",borderRadius:"3px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",color:SOFT}}>{t}</span>
+                      ))}
+                    </div>
+                    {(party.chars||[]).length > 0 && (
+                      <div style={{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
+                        {party.chars.map(ch => (
+                          <div key={ch.name} style={{fontSize:"10px",color:SOFT,display:"flex",gap:"6px"}}>
+                            <span style={{color:"#e8dcc8"}}>{ch.name}</span>
+                            {ch.role && <span style={{color:DIM,fontStyle:"italic"}}>{ch.role}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:"7px"}}>
+                  <button onClick={() => {
+                    const c = {id:party.id, name:party.name, color:party.color, classBase:party.classBase||[], laws:[], actions:[], actionsLeft:3};
+                    setCandidates(p => [...p, c]);
+                    setPendingParties(p => p.filter(x => x.id !== party.id));
+                    setActiveCand(c.id);
+                  }} style={{padding:"6px 16px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",
+                    background:"rgba(80,160,100,0.12)",border:"1px solid rgba(80,160,100,0.35)",borderRadius:"4px",color:"#6db87a"}}>
+                    ✓ Approve
+                  </button>
+                  <button onClick={async () => {
+                    const updated = pendingParties.filter(x => x.id !== party.id);
+                    setPendingParties(updated);
+                    // Write removal back to JSONbin immediately so it doesn't reappear on next poll
+                    try {
+                      const pr = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
+                        headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
+                      });
+                      const pd = await pr.json();
+                      const current = pd.record || {};
+                      await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID, {
+                        method:"PUT",
+                        headers:{"Content-Type":"application/json","X-Access-Key":JSONBIN_ACCESS_KEY},
+                        body: JSON.stringify({...current, pendingParties: updated}),
+                      });
+                    } catch(e) { console.error("Deny sync failed:", e); }
+                  }} style={{
+                    padding:"6px 16px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",
+                    background:"rgba(200,80,60,0.08)",border:"1px solid rgba(200,80,60,0.22)",borderRadius:"4px",color:"#c4605a"}}>
+                    ✗ Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── candidate switcher ── */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:"8px",justifyContent:"center",marginBottom:"24px",alignItems:"flex-start"}}>
+        {candidates.map(c => (
+          <div key={c.id} style={{
+            display:"flex",flexDirection:"column",alignItems:"stretch",gap:"4px",
+            padding:"10px 12px",
+            background:activeCand===c.id?"rgba(255,255,255,0.03)":"rgba(255,255,255,0.01)",
+            border:`1px solid ${activeCand===c.id?c.color+"55":"rgba(255,255,255,0.07)"}`,
+            borderRadius:"6px",minWidth:"160px",cursor:"pointer",
+          }} onClick={() => setActiveCand(c.id)}>
+            {/* top row: color swatch + editable name + delete */}
+            <div style={{display:"flex",alignItems:"center",gap:"7px"}}>
+              {/* color picker — clicking the swatch opens native color input */}
+              <div style={{position:"relative",flexShrink:0}}>
+                <div style={{width:"14px",height:"14px",borderRadius:"50%",background:c.color,border:"2px solid rgba(255,255,255,0.15)",cursor:"pointer"}}/>
+                <input
+                  type="color"
+                  value={c.color}
+                  onChange={e => { e.stopPropagation(); updateCandColor(c.id, e.target.value); }}
+                  onClick={e => e.stopPropagation()}
+                  style={{position:"absolute",top:0,left:0,width:"14px",height:"14px",opacity:0,cursor:"pointer",padding:0,border:"none"}}
+                />
+              </div>
+              {/* editable name */}
+              <input
+                value={c.name}
+                onChange={e => { e.stopPropagation(); updateCandName(c.id, e.target.value); }}
+                onClick={e => e.stopPropagation()}
+                style={{
+                  background:"transparent",border:"none",outline:"none",
+                  fontFamily:"Georgia,serif",fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase",
+                  color:activeCand===c.id?c.color:SOFT,
+                  flex:1,minWidth:0,cursor:"text",
+                }}
+              />
+              {candidates.length > 1 && (
+                <button onClick={e => { e.stopPropagation(); removeCand(c.id); }} style={{background:"none",border:"none",color:"#5a3a30",cursor:"pointer",fontSize:"13px",padding:"0 2px",flexShrink:0}}>×</button>
+              )}
+            </div>
+            {/* actions remaining pip row */}
+            <div style={{display:"flex",gap:"3px",alignItems:"center"}}>
+              {Array.from({length: BASE_ACTIONS}).map((_,i) => (
+                <div key={i} style={{width:"6px",height:"6px",borderRadius:"50%",background:i < (c.actionsLeft??BASE_ACTIONS)?c.color:"rgba(255,255,255,0.07)"}}/>
+              ))}
+              <span style={{fontSize:"8px",color:DIM,marginLeft:"4px",letterSpacing:"1px"}}>{c.actionsLeft??BASE_ACTIONS} left</span>
+            </div>
+          </div>
+        ))}
+        {/* add new */}
+        <div style={{display:"flex",flexDirection:"column",gap:"4px",justifyContent:"center",padding:"10px 12px",border:"1px dashed rgba(255,255,255,0.06)",borderRadius:"6px",minWidth:"130px"}}>
+          <input value={newCandName} onChange={e=>setNewCandName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCand()}
+            placeholder="New candidate..." style={{...INPUT,width:"100%",padding:"5px 8px",fontSize:"11px",background:"transparent",border:"none",borderBottom:"1px solid rgba(255,255,255,0.1)",borderRadius:0,outline:"none"}}/>
+          <button onClick={addCand} style={{padding:"5px",background:"rgba(201,168,76,0.1)",border:"1px solid rgba(201,168,76,0.2)",borderRadius:"4px",color:GOLD,cursor:"pointer",fontSize:"10px",fontFamily:"Georgia,serif",letterSpacing:"2px",textTransform:"uppercase"}}>+ Add</button>
+        </div>
+      </div>
+
+      {cand && (
+        <div style={{maxWidth:"720px",margin:"0 auto"}}>
+
+          {/* ── LAWS SECTION ── */}
+          <div style={{marginBottom:"28px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"12px"}}>
+              <span style={{fontSize:"10px",letterSpacing:"4px",color:DIM,textTransform:"uppercase"}}>Laws & Policies</span>
+              {smBtn(showLawForm, () => { setShowLawForm(f=>!f); setShowActForm(false); }, showLawForm?"Cancel":"+ New Law")}
+            </div>
+
+            {/* law form */}
+            {showLawForm && (
+              <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(201,168,76,0.18)",borderRadius:"6px",padding:"16px",marginBottom:"12px"}}>
+                <input value={newLawName} onChange={e=>setNewLawName(e.target.value)}
+                  placeholder="Law name..." style={{...INPUT,marginBottom:"8px"}}/>
+                <textarea value={newLawDesc} onChange={e=>setNewLawDesc(e.target.value)}
+                  placeholder="Description (optional)" rows={2}
+                  style={{...INPUT,color:SOFT,fontSize:"12px",marginBottom:"14px",resize:"vertical",lineHeight:"1.5"}}></textarea>
+
+                <div style={{fontSize:"9px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"8px"}}>Class Reactions & Agitation Impact</div>
+
+                <div style={{display:"flex",flexDirection:"column",gap:"4px",marginBottom:"14px"}}>
+                  {CLASSES.map((cls, i) => {
+                    const fx = newLawFx[i];
+                    return (
+                      <div key={cls} style={{
+                        display:"flex",alignItems:"center",gap:"8px",padding:"7px 10px",
+                        background:"rgba(255,255,255,0.015)",
+                        border:`1px solid ${agitation[i]>=5?"rgba(200,80,60,0.2)":agitation[i]>=3?"rgba(201,168,76,0.12)":"rgba(255,255,255,0.05)"}`,
+                        borderRadius:"4px",
+                      }}>
+                        <span style={{display:"inline-block",width:"6px",height:"6px",borderRadius:"2px",background:CLASS_COLORS[i],flexShrink:0}}/>
+                        <span style={{fontSize:"10px",color:"#b0a080",width:"100px",flexShrink:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{cls}</span>
+                        <AgitBar current={agitation[i]} projected={projectedAgit[i]} classIdx={i}/>
+                        {newLawFx[i] !== "neutral" && (
+                          <span style={{
+                            fontSize:"8px",whiteSpace:"nowrap",flexShrink:0,
+                            padding:"1px 5px",borderRadius:"3px",
+                            background:newLawFx[i]==="bonus"?"rgba(80,160,100,0.12)":"rgba(200,80,60,0.12)",
+                            border:`1px solid ${newLawFx[i]==="bonus"?"rgba(80,160,100,0.3)":"rgba(200,80,60,0.3)"}`,
+                            color:newLawFx[i]==="bonus"?"#6db87a":"#c4605a",
+                          }}>inf {newLawFx[i]==="bonus"?"+1":"−1"}</span>
+                        )}
+                        <div style={{display:"flex",gap:"2px",flexShrink:0}}>
+                          {["bonus","neutral","malus"].map(type => {
+                            const isA = fx === type;
+                            const col = type==="bonus"?"#6db87a":type==="malus"?"#c4605a":SOFT;
+                            const lbl = type==="bonus"?"Y":type==="malus"?"N":"–";
+                            return (
+                              <button key={type} onClick={() => setNewLawFx(p=>{const n=[...p];n[i]=type;return n;})} style={{
+                                width:"24px",height:"24px",cursor:"pointer",fontSize:"11px",fontFamily:"Georgia,serif",padding:0,borderRadius:"3px",
+                                background:isA?col+"28":"transparent",
+                                border:`1px solid ${isA?col:"rgba(255,255,255,0.08)"}`,
+                                color:isA?col:"#5a4a30",
+                              }}>{lbl}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:"9px",color:DIM}}>Y = +pop, inf+1, agit−1 · N = −pop, inf−1, agit+2</span>
+                  <button onClick={addLaw} style={{padding:"6px 18px",background:"rgba(201,168,76,0.15)",border:"1px solid rgba(201,168,76,0.35)",borderRadius:"4px",color:GOLD,cursor:"pointer",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif"}}>Enact</button>
+                </div>
+              </div>
+            )}
+
+            {/* enacted laws list */}
+            {cand.laws.length === 0 ? (
+              <div style={{textAlign:"center",padding:"14px",color:DIM,fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.05)",borderRadius:"5px"}}>No laws enacted</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                {cand.laws.map(law => {
+                  const agitSummary = lawAgitSummary(law);
+                  const gains  = agitSummary.filter(x=>x.delta<0);
+                  const losses = agitSummary.filter(x=>x.delta>0);
+                  return (
+                    <div key={law.id} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"5px",padding:"10px 12px"}}>
+                      <div style={{display:"flex",alignItems:"flex-start",gap:"8px",marginBottom:"7px"}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:"12px",color:"#e8dcc8",marginBottom:law.desc?"2px":"0"}}>{law.name}</div>
+                          {law.desc && <div style={{fontSize:"10px",color:SOFT,fontStyle:"italic"}}>{law.desc}</div>}
+                        </div>
+                        <button onClick={() => removeLaw(law.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"12px",padding:"1px 5px",flexShrink:0}}>×</button>
+                      </div>
+                      {/* popularity tags */}
+                      <div style={{display:"flex",flexWrap:"wrap",gap:"3px",marginBottom: agitSummary.length?"6px":"0"}}>
+                        {law.effects.map(({classIdx,type}) => {
+                          const isAg = agitation[classIdx]>=5;
+                          return (
+                            <span key={classIdx} style={{fontSize:"9px",padding:"1px 7px",borderRadius:"3px",
+                              background:type==="bonus"?"rgba(80,160,100,0.1)":"rgba(200,80,60,0.1)",
+                              border:`1px solid ${type==="bonus"?"rgba(80,160,100,0.25)":isAg?"rgba(200,80,60,0.5)":"rgba(200,80,60,0.25)"}`,
+                              color:type==="bonus"?"#80c890":isAg?"#ff8070":"#e08060",
+                            }}>{type==="bonus"?"+":"-"} {CLASSES[classIdx]}{type==="malus"&&isAg?" (!)":""}</span>
+                          );
+                        })}
+                      </div>
+                      {/* agitation impact row */}
+                      {agitSummary.length > 0 && (
+                        <div style={{display:"flex",gap:"3px",flexWrap:"wrap",alignItems:"center",paddingTop:"5px",borderTop:"1px solid rgba(255,255,255,0.04)"}}>
+                          <span style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginRight:"3px"}}>Agit</span>
+                          {gains.map(x => (
+                            <span key={x.classIdx} style={{fontSize:"8px",padding:"1px 6px",borderRadius:"3px",background:"rgba(80,160,100,0.1)",border:"1px solid rgba(80,160,100,0.2)",color:"#6db87a"}}>
+                              {x.label.slice(0,4)} −1
+                            </span>
+                          ))}
+                          {losses.map(x => {
+                            const cur = agitation[x.classIdx];
+                            const isAg = cur>=5;
+                            return (
+                              <span key={x.classIdx} style={{fontSize:"8px",padding:"1px 6px",borderRadius:"3px",background:isAg?"rgba(200,80,60,0.15)":"rgba(200,80,60,0.08)",border:`1px solid ${isAg?"rgba(200,80,60,0.5)":"rgba(200,80,60,0.2)"}`,color:isAg?"#ff8070":"#e08060"}}>
+                                {x.label.slice(0,4)} +2{isAg?" (!)":""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── CAMPAIGN ACTIONS SECTION ── */}
+          <div style={{marginBottom:"28px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"12px"}}>
+              <span style={{fontSize:"10px",letterSpacing:"4px",color:DIM,textTransform:"uppercase"}}>Campaign Actions</span>
+              {smBtn(showActForm, () => { setShowActForm(f=>!f); setShowLawForm(false); }, showActForm?"Cancel":"+ New Action")}
+            </div>
+
+            {/* literacy strip */}
+            <div style={{display:"flex",gap:"3px",flexWrap:"wrap",marginBottom:"10px",padding:"6px 10px",background:"rgba(100,160,200,0.04)",border:"1px solid rgba(100,160,200,0.12)",borderRadius:"4px",alignItems:"center"}}>
+              <span style={{fontSize:"8px",color:"#7ab0d0",letterSpacing:"2px",textTransform:"uppercase",marginRight:"4px",flexShrink:0}}>Literacy</span>
+              {REGIONS.map((r,i) => {
+                const lit = litLevel(data,i);
+                return <span key={r} style={{fontSize:"8px",color:lit.color,padding:"1px 5px",borderRadius:"3px",background:lit.color+"12",border:`1px solid ${lit.color}25`}}>{r.slice(0,3)} ×{lit.n}</span>;
+              })}
+            </div>
+
+            {/* action form */}
+            {showActForm && (
+              <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(100,160,200,0.18)",borderRadius:"6px",padding:"16px",marginBottom:"12px"}}>
+                <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
+                  <input value={newActName} onChange={e=>setNewActName(e.target.value)}
+                    placeholder="Action name..." style={{...INPUT,flex:"2 1 120px",width:"auto"}}/>
+                  <select value={newActType} onChange={e=>setNewActType(e.target.value)}
+                    style={{flex:"1 1 90px",padding:"9px 8px",background:"#1e1a12",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"4px",color:"#e8dcc8",fontSize:"11px",fontFamily:"Georgia,serif",outline:"none",cursor:"pointer"}}>
+                    {ACTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div style={{fontSize:"9px",letterSpacing:"2px",color:DIM,textTransform:"uppercase",marginBottom:"8px"}}>Bonus per region (0–3) × literacy multiplier</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",marginBottom:"12px"}}>
+                  {REGIONS.map((r,i) => {
+                    const lit = litLevel(data,i);
+                    const base = newActBon[i];
+                    return (
+                      <div key={r} style={{display:"flex",alignItems:"center",gap:"6px",background:"rgba(255,255,255,0.015)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:"4px",padding:"5px 8px"}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:"10px",color:"#b0a080"}}>{r}</div>
+                          {base > 0 && <div style={{fontSize:"8px",color:"#7ab0d0"}}>→ +{base*lit.n}</div>}
+                        </div>
+                        <div style={{display:"flex",gap:"2px"}}>
+                          {[0,1,2,3].map(v => {
+                            const isA = newActBon[i]===v;
+                            return (
+                              <button key={v} onClick={() => setNewActBon(p=>{const n=[...p];n[i]=v;return n;})} style={{
+                                width:"20px",height:"20px",cursor:"pointer",fontSize:"10px",fontFamily:"Georgia,serif",padding:0,borderRadius:"3px",
+                                background:isA?(v===0?"rgba(255,255,255,0.04)":"rgba(100,200,120,0.2)"):"transparent",
+                                border:`1px solid ${isA?(v===0?"rgba(255,255,255,0.12)":"rgba(100,200,120,0.45)"):"rgba(255,255,255,0.06)"}`,
+                                color:isA?(v===0?DIM:"#80c890"):SOFT,
+                              }}>{v}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex",justifyContent:"flex-end"}}>
+                  <button onClick={addAction} style={{padding:"6px 18px",background:"rgba(100,160,200,0.12)",border:"1px solid rgba(100,160,200,0.35)",borderRadius:"4px",color:"#7ab0d0",cursor:"pointer",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif"}}>Add</button>
+                </div>
+              </div>
+            )}
+
+            {(cand.actions||[]).length === 0 ? (
+              <div style={{textAlign:"center",padding:"14px",color:DIM,fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.05)",borderRadius:"5px"}}>No campaign actions</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:"5px"}}>
+                {(cand.actions||[]).map(action => (
+                  <div key={action.id} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(100,160,200,0.1)",borderRadius:"5px",padding:"9px 12px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                    <span style={{fontSize:"8px",color:"#7ab0d0",letterSpacing:"1px",textTransform:"uppercase",border:"1px solid rgba(100,160,200,0.2)",borderRadius:"3px",padding:"1px 5px",flexShrink:0}}>{action.type}</span>
+                    <span style={{fontSize:"12px",color:"#e8dcc8",flex:1,minWidth:"70px"}}>{action.name}</span>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px"}}>
+                      {action.bonuses.map((b,i) => b > 0 ? (
+                        <span key={i} style={{fontSize:"8px",padding:"1px 5px",borderRadius:"3px",background:"rgba(100,200,120,0.1)",border:"1px solid rgba(100,200,120,0.25)",color:"#80c890"}}>+{b*litLevel(data,i).n} {REGIONS[i]}</span>
+                      ) : null)}
+                    </div>
+                    <button onClick={() => removeAction(action.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"12px",padding:"1px 5px"}}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── POPULARITY TABLE ── */}
+          {hasContent(cand) && (
+            <div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"}}>
+                <span style={{fontSize:"10px",letterSpacing:"4px",color:DIM,textTransform:"uppercase"}}>{cand.name} — Popularity</span>
+                <span style={{fontSize:"9px",color:DIM}}>Click region to compare all candidates</span>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"separate",borderSpacing:"2px"}}>
+                  <thead>
+                    <tr>
+                      {REGIONS.map((r,i) => (
+                        <th key={r} onClick={() => setSelRegion(i)}
+                          onMouseEnter={e=>{e.currentTarget.style.color=GOLD;}}
+                          onMouseLeave={e=>{e.currentTarget.style.color=DIM;}}
+                          style={{padding:"5px 3px",textAlign:"center",fontSize:"8px",letterSpacing:"1px",color:DIM,textTransform:"uppercase",fontWeight:"normal",cursor:"pointer",minWidth:"58px"}}>
+                          {r}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {myPop(cand).map((score,i) => (
+                        <td key={i} style={{padding:"2px"}}>
+                          <div onClick={() => setSelRegion(i)} style={{textAlign:"center",padding:"10px 2px",borderRadius:"4px",background:popColor(score)+"12",border:`1px solid ${popColor(score)}33`,fontSize:"16px",fontWeight:"bold",color:popColor(score),cursor:"pointer"}}>
+                            {score>0?"+"+score:score}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    {cand.laws.map(law => {
+                      const scores = REGIONS.map((_,rIdx) => {
+                        let s=0;
+                        law.effects.forEach(({classIdx,type}) => {
+                          const inf=data[classIdx][rIdx], isAg=agitation[classIdx]>=5;
+                          if(type==="bonus") s+=inf;
+                          if(type==="malus") s-=isAg?inf:Math.floor(inf/2);
+                        });
+                        return Math.round(s);
+                      });
+                      return [
+                        <tr key={law.id+"-h"}>
+                          <td colSpan={REGIONS.length} style={{paddingTop:"4px",paddingBottom:"1px"}}>
+                            <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",paddingLeft:"3px"}}>↳ {law.name}</div>
+                          </td>
+                        </tr>,
+                        <tr key={law.id+"-r"}>
+                          {scores.map((s,i) => (
+                            <td key={i} style={{padding:"1px 2px"}}>
+                              <div style={{textAlign:"center",padding:"3px",borderRadius:"3px",background:"rgba(255,255,255,0.015)",fontSize:"9px",color:popColor(s)}}>{s>0?"+"+s:s===0?"·":""+s}</div>
+                            </td>
+                          ))}
+                        </tr>
+                      ];
+                    })}
+                    {(cand.actions||[]).map(action => {
+                      const scores = action.bonuses.map((b,i) => b*litLevel(data,i).n);
+                      return [
+                        <tr key={action.id+"-h"}>
+                          <td colSpan={REGIONS.length} style={{paddingTop:"4px",paddingBottom:"1px"}}>
+                            <div style={{fontSize:"8px",color:"#5a8aaa",letterSpacing:"2px",textTransform:"uppercase",paddingLeft:"3px"}}>↳ {action.name}</div>
+                          </td>
+                        </tr>,
+                        <tr key={action.id+"-r"}>
+                          {scores.map((s,i) => (
+                            <td key={i} style={{padding:"1px 2px"}}>
+                              <div style={{textAlign:"center",padding:"3px",borderRadius:"3px",background:"rgba(255,255,255,0.015)",fontSize:"9px",color:s>0?"#80c890":DIM}}>{s>0?"+"+s:"·"}</div>
+                            </td>
+                          ))}
+                        </tr>
+                      ];
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── GAME STATE TAB ────────────────────────────────────────────────────────────
+
+function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candidates, setCandidates, senateHolder}) {
+  const [confirmEnd, setConfirmEnd] = useState(false);
+
+  const adjAgit = (i,d) => setAgitation(p => { const n=[...p]; n[i]=Math.max(0,Math.min(6,n[i]+d)); return n; });
+  const adjAct  = (id,d) => setCandidates(p => p.map(c => c.id===id ? {...c, actionsLeft:Math.max(0,Math.min(10,(c.actionsLeft??BASE_ACTIONS)+d))} : c));
+
+  const endTurn = () => {
+    setAgitation(p => p.map(a => Math.max(0, a - (a <= 2 ? 0 : 0))));
+    setCandidates(p => p.map(c => ({
+      ...c,
+      actionsLeft: BASE_ACTIONS + (senateHolder === c.id ? 1 : 0) + (government.pm === c.id ? 1 : 0)
+    })));
+    setTurn(t => t+1);
+    setConfirmEnd(false);
+  };
+
+  const ur = unrestInfo(natUnrest);
+
+  return (
+    <div style={{padding:"28px 24px",maxWidth:"900px",margin:"0 auto"}}>
+      {/* banner */}
+      <div style={{marginBottom:"28px",padding:"20px 24px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"6px",display:"flex",alignItems:"center",flexWrap:"wrap",gap:"20px",justifyContent:"space-between"}}>
+        <div style={{flex:1,minWidth:"220px"}}>
+          <div style={{fontSize:"11px",letterSpacing:"4px",color:DIM,textTransform:"uppercase",marginBottom:"4px"}}>Current Period</div>
+          <div style={{fontSize:"26px",color:"#e8dcc8",marginBottom:"4px",letterSpacing:"1px"}}>
+            {getSeason(turn)} {getYear(turn)}
+          </div>
+          <div style={{fontSize:"11px",color:SOFT,letterSpacing:"2px",marginBottom:"12px"}}>Turn {turn}</div>
+          <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"8px",flexWrap:"wrap"}}>
+            <span style={{fontSize:"10px",letterSpacing:"2px",color:DIM,textTransform:"uppercase"}}>National Unrest</span>
+            <div style={{width:"100px",height:"5px",background:"rgba(255,255,255,0.07)",borderRadius:"3px",overflow:"hidden"}}>
+              <div style={{width:(natUnrest/10*100)+"%",height:"100%",background:ur.color,borderRadius:"3px",transition:"width 0.4s"}}/>
+            </div>
+            <span style={{fontSize:"14px",fontWeight:"bold",color:ur.color}}>{natUnrest}/10</span>
+            <span style={{fontSize:"10px",color:ur.color,letterSpacing:"2px",textTransform:"uppercase",border:`1px solid ${ur.color}44`,padding:"2px 8px",borderRadius:"3px"}}>{ur.label}</span>
+          </div>
+          {natUnrest > 0 && (
+            <div style={{fontSize:"10px",color:ur.color,padding:"4px 8px",background:ur.color+"10",border:`1px solid ${ur.color}22`,borderRadius:"3px",display:"inline-block",marginBottom:"6px"}}>{ur.desc}</div>
+          )}
+          <div style={{fontSize:"10px",color:DIM,lineHeight:"1.6"}}>
+            Unrest = Restless classes x1 + Agitated classes x2 (auto-calculated)<br/>
+            On End Turn: all actions reset to {BASE_ACTIONS} (+1 for Senate majority holder)
+          </div>
+        </div>
+        {!confirmEnd ? (
+          <button onClick={() => setConfirmEnd(true)} style={{padding:"12px 28px",background:"rgba(201,168,76,0.18)",border:"1px solid rgba(201,168,76,0.5)",borderRadius:"4px",color:GOLD,cursor:"pointer",fontSize:"13px",letterSpacing:"3px",textTransform:"uppercase",fontFamily:"Georgia,serif"}}>
+            End {getSeason(turn)}
+          </button>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:"8px",alignItems:"flex-end"}}>
+            <div style={{fontSize:"11px",color:SOFT}}>End {getSeason(turn)} {getYear(turn)}?</div>
+            <div style={{display:"flex",gap:"8px"}}>
+              <button onClick={() => setConfirmEnd(false)} style={{padding:"8px 14px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"4px",color:SOFT,cursor:"pointer",fontSize:"11px",fontFamily:"Georgia,serif"}}>Cancel</button>
+              <button onClick={endTurn} style={{padding:"8px 20px",background:"rgba(201,168,76,0.25)",border:"1px solid rgba(201,168,76,0.6)",borderRadius:"4px",color:GOLD,cursor:"pointer",fontSize:"11px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif",fontWeight:"bold"}}>Confirm</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:"28px"}}>
+
+        {/* CLASS AGITATION */}
+        <div>
+          <SecBar>Class Agitation</SecBar>
+          <div style={{fontSize:"10px",color:DIM,marginBottom:"14px",lineHeight:"1.8"}}>
+            Bonus law: -1 agitation -- Malus law: +2 agitation<br/>
+            0-2 Content (+0 unrest) -- 3-4 Restless (+1 unrest) -- 5-6 Agitated (+2 unrest)
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"7px"}}>
+            {CLASSES.map((cls,i) => {
+              const ph = agitPhase(agitation[i]);
+              return (
+                <div key={cls} style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${ph.border}`,borderRadius:"4px",padding:"11px 13px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"8px"}}>
+                    <span style={{display:"inline-block",width:"7px",height:"7px",borderRadius:"2px",background:CLASS_COLORS[i],flexShrink:0}}/>
+                    <span style={{flex:1,fontSize:"12px",color:"#e8dcc8"}}>{cls}</span>
+                    <span style={{fontSize:"9px",letterSpacing:"2px",color:ph.color,textTransform:"uppercase",padding:"2px 7px",borderRadius:"3px",background:ph.bg,border:`1px solid ${ph.border}`,whiteSpace:"nowrap"}}>{ph.label}</span>
+                    <span style={{fontSize:"12px",fontWeight:"bold",color:ph.color,minWidth:"24px",textAlign:"right"}}>{agitation[i]}/6</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"7px"}}>
+                    <div style={{flex:1}}>
+                      <ProgressBar value={agitation[i]} max={6} color={ph.color}/>
+                    </div>
+                    <AdjBtn onClick={() => adjAgit(i,-1)}>-</AdjBtn>
+                    <AdjBtn onClick={() => adjAgit(i,+1)} red>+</AdjBtn>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ACTIONS */}
+        <div>
+          <SecBar>Actions This Turn</SecBar>
+          <div style={{fontSize:"10px",color:DIM,marginBottom:"14px",lineHeight:"1.8"}}>
+            Base: {BASE_ACTIONS} actions/season (+1 if Senate majority) — Each action = 1 law, campaign, or negotiation<br/>
+            Resets automatically at End of Season
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"7px",marginBottom:"24px"}}>
+            {candidates.map(c => {
+              const left = c.actionsLeft ?? BASE_ACTIONS;
+              return (
+                <div key={c.id} style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${c.color}33`,borderRadius:"4px",padding:"12px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"8px"}}>
+                    <span style={{display:"inline-block",width:"8px",height:"8px",borderRadius:"50%",background:c.color,flexShrink:0}}/>
+                    <span style={{flex:1,fontSize:"12px",color:c.color}}>{c.name}</span>
+                    <span style={{fontSize:"14px",fontWeight:"bold",color:left>0?"#6db87a":"#c4605a"}}>{left}/{BASE_ACTIONS}</span>
+                    <AdjBtn onClick={() => adjAct(c.id,-1)} red>-</AdjBtn>
+                    <AdjBtn onClick={() => adjAct(c.id,+1)}>+</AdjBtn>
+                  </div>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {Array.from({length:BASE_ACTIONS},(_,idx) => (
+                      <div key={idx} style={{flex:1,height:"4px",borderRadius:"2px",background:idx<left?c.color:"rgba(255,255,255,0.08)"}}/>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <SecBar>Turn Calendar</SecBar>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px"}}>
+            {Array.from({length:8},(_,i) => {
+              const t = i+1;
+              const s = getSeason(t);
+              const y = getYear(t);
+              const isCur = t === turn;
+              const isPast = t < turn;
+              const sc = {Spring:"#8fae7a",Summer:"#c9a84c",Autumn:"#c47a5a",Winter:"#7ab0d0"}[s];
+              return (
+                <div key={i} style={{padding:"8px 10px",borderRadius:"4px",
+                  background:isCur?"rgba(201,168,76,0.12)":isPast?"rgba(255,255,255,0.015)":"rgba(255,255,255,0.025)",
+                  border:`1px solid ${isCur?"rgba(201,168,76,0.35)":"rgba(255,255,255,0.06)"}`,
+                  opacity:isPast?.5:1}}>
+                  <div style={{fontSize:"9px",color:isCur?GOLD:sc,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"2px"}}>{isCur?">>> ":""}{s}</div>
+                  <div style={{fontSize:"13px",color:isCur?"#e8dcc8":SOFT,letterSpacing:"1px"}}>{y}</div>
+                  <div style={{fontSize:"9px",color:DIM,marginTop:"2px"}}>Turn {t}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ── INFLUENCE EDITOR ──────────────────────────────────────────────────────────
+
+function InfluenceTab({data, setData}) {
+  const [hov, setHov] = useState(null);
+  const total = col => data.reduce((s,r) => s+r[col], 0);
+  const adj   = (row,col,d) => setData(p => {
+    const n = p.map(r => [...r]);
+    const v = n[row][col]+d;
+    if (v < 0) return p;
+    n[row][col] = v;
+    return n;
+  });
+  const tc = t => { const d=Math.abs(t-TARGET); return d===0?"#6db87a":d<=2?GOLD:"#c4605a"; };
+
+  return (
+    <div style={{padding:"28px 24px"}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:"10px",justifyContent:"center",marginBottom:"24px"}}>
+        {CLASSES.map((cls,i) => (
+          <div key={cls} style={{display:"flex",alignItems:"center",gap:"6px",fontSize:"11px",color:"#b0a080"}}>
+            <div style={{width:"9px",height:"9px",borderRadius:"2px",background:CLASS_COLORS[i]}}/>{cls}
+          </div>
+        ))}
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{margin:"0 auto",borderCollapse:"separate",borderSpacing:"3px",minWidth:"900px"}}>
+          <thead>
+            <tr>
+              <th style={{width:"130px",padding:"8px 12px",textAlign:"left",fontSize:"10px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",fontWeight:"normal"}}>Class / Region</th>
+              {REGIONS.map(r => (
+                <th key={r} style={{padding:"8px 6px",textAlign:"center",fontSize:"10px",letterSpacing:"2px",color:GOLD,textTransform:"uppercase",fontWeight:"normal",minWidth:"80px"}}>{r}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {CLASSES.map((cls,row) => (
+              <tr key={cls}>
+                <td style={{padding:"4px 12px",fontSize:"12px",color:CLASS_COLORS[row],whiteSpace:"nowrap"}}>
+                  <span style={{display:"inline-block",width:"7px",height:"7px",borderRadius:"2px",background:CLASS_COLORS[row],marginRight:"8px",opacity:.7,verticalAlign:"middle"}}/>
+                  {cls}
+                </td>
+                {REGIONS.map((_,col) => {
+                  const val = data[row][col];
+                  const isH = hov && hov[0]===row && hov[1]===col;
+                  return (
+                    <td key={col} style={{padding:"3px"}}>
+                      <div
+                        onMouseEnter={() => setHov([row,col])}
+                        onMouseLeave={() => setHov(null)}
+                        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"4px",
+                          background:isH?"rgba(201,168,76,0.1)":"rgba(255,255,255,0.03)",
+                          border:`1px solid ${isH?"rgba(201,168,76,0.35)":"rgba(255,255,255,0.06)"}`,
+                          borderRadius:"4px",padding:"5px 4px"}}>
+                        <button onClick={() => adj(row,col,-1)} style={{width:"16px",height:"16px",background:"rgba(200,100,80,0.25)",border:"1px solid rgba(200,100,80,0.3)",borderRadius:"2px",color:"#e08060",cursor:"pointer",fontSize:"12px",lineHeight:"1",padding:0}}>-</button>
+                        <span style={{fontSize:"14px",fontWeight:"bold",color:CLASS_COLORS[row],minWidth:"20px",textAlign:"center"}}>{val}</span>
+                        <button onClick={() => adj(row,col,1)} style={{width:"16px",height:"16px",background:"rgba(80,160,100,0.25)",border:"1px solid rgba(80,160,100,0.3)",borderRadius:"2px",color:"#80c890",cursor:"pointer",fontSize:"12px",lineHeight:"1",padding:0}}>+</button>
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            <tr>
+              <td style={{padding:"8px 12px 2px",fontSize:"10px",letterSpacing:"3px",color:DIM,textTransform:"uppercase"}}>Total</td>
+              {REGIONS.map((_,col) => {
+                const t = total(col);
+                return (
+                  <td key={col} style={{padding:"8px 3px 2px"}}>
+                    <div style={{textAlign:"center",fontSize:"15px",fontWeight:"bold",color:tc(t),padding:"4px",borderTop:`1px solid ${tc(t)}33`}}>{t}</div>
+                  </td>
+                );
+              })}
+            </tr>
+            <tr>
+              <td/>
+              {REGIONS.map((_,col) => {
+                const d = total(col)-TARGET;
+                return (
+                  <td key={col} style={{padding:"0 3px 6px"}}>
+                    <div style={{textAlign:"center",fontSize:"10px",color:d===0?"#6db87a":d>0?"#c4605a":GOLD}}>{d===0?"ok":d>0?"+"+d:""+d}</div>
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{textAlign:"center",marginTop:"20px",fontSize:"10px",color:"#5a4a30",letterSpacing:"3px",textTransform:"uppercase"}}>
+        Target per region: 30 -- Green = exact, Gold = close, Red = off
+      </div>
+    </div>
+  );
+}
+
+// ── LAW REGISTRY ─────────────────────────────────────────────────────────────
+
+function LawRegistryTab({candidates, government}) {
+  const [filter, setFilter] = useState("all");
+  const CROWN = {id:"crown", name:"The Crown", color:"#9b7fba"};
+  const passedDecrees = (government?.decrees||[])
+    .filter(d => d.status==="passed")
+    .map(d => ({...d, candidate:CROWN, isDecree:true}));
+  const allLaws  = [
+    ...candidates.flatMap(c => c.laws.map(law => ({...law, candidate:c}))),
+    ...passedDecrees,
+  ].sort((a,b) => (b.id||0)-(a.id||0));
+  const filtered = filter==="all" ? allLaws
+    : filter==="crown" ? allLaws.filter(l=>l.isDecree)
+    : allLaws.filter(l => !l.isDecree && l.candidate.id===Number(filter));
+  const typeInfo = effects => {
+    const b = effects.filter(e=>e.type==="bonus").length, m = effects.filter(e=>e.type==="malus").length;
+    if (b>0&&m>0) return {label:"Reform",      bg:"rgba(160,140,80,0.15)", border:"rgba(160,140,80,0.4)", color:"#c4a96b"};
+    if (b>0)      return {label:"Progressive", bg:"rgba(80,160,100,0.12)", border:"rgba(80,160,100,0.35)",color:"#80c890"};
+    return               {label:"Restrictive", bg:"rgba(200,80,60,0.12)",  border:"rgba(200,80,60,0.35)", color:"#e08060"};
+  };
+
+  return (
+    <div style={{padding:"28px 24px"}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:"6px",justifyContent:"center",marginBottom:"24px",alignItems:"center"}}>
+        <span style={{fontSize:"10px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginRight:"8px"}}>Filter</span>
+        <button onClick={()=>setFilter("all")} style={{padding:"6px 13px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",borderRadius:"4px",background:filter==="all"?"rgba(201,168,76,0.15)":"rgba(255,255,255,0.03)",border:`1px solid ${filter==="all"?"rgba(201,168,76,0.5)":"rgba(255,255,255,0.08)"}`,color:filter==="all"?GOLD:SOFT}}>All</button>
+        {candidates.map(c => (
+          <button key={c.id} onClick={()=>setFilter(String(c.id))} style={{padding:"6px 13px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",borderRadius:"4px",background:filter===String(c.id)?"rgba(201,168,76,0.12)":"rgba(255,255,255,0.03)",border:`1px solid ${filter===String(c.id)?c.color+"88":"rgba(255,255,255,0.08)"}`,color:filter===String(c.id)?c.color:SOFT}}>
+            <span style={{display:"inline-block",width:"6px",height:"6px",borderRadius:"50%",background:c.color,marginRight:"6px",verticalAlign:"middle"}}/>{c.name}
+          </button>
+        ))}
+        {passedDecrees.length > 0 && (
+          <button onClick={()=>setFilter("crown")} style={{padding:"6px 13px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",borderRadius:"4px",background:filter==="crown"?"rgba(155,127,186,0.15)":"rgba(255,255,255,0.03)",border:`1px solid ${filter==="crown"?"rgba(155,127,186,0.5)":"rgba(255,255,255,0.08)"}`,color:filter==="crown"?"#9b7fba":SOFT}}>
+            👑 Crown
+          </button>
+        )}
+      </div>
+      <div style={{textAlign:"center",fontSize:"10px",color:DIM,letterSpacing:"3px",textTransform:"uppercase",marginBottom:"20px"}}>{filtered.length} {filtered.length===1?"law":"laws"} on record</div>
+      {filtered.length === 0 ? (
+        <div style={{textAlign:"center",padding:"40px",color:"#5a4a30",fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.06)",borderRadius:"6px",maxWidth:"560px",margin:"0 auto"}}>No laws enacted yet</div>
+      ) : (
+        <div style={{maxWidth:"780px",margin:"0 auto",display:"flex",flexDirection:"column",gap:"14px"}}>
+          {filtered.map((law,idx) => {
+            const ti = typeInfo(law.effects);
+            return (
+              <div key={law.id} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.08)",borderLeft:`3px solid ${law.candidate.color}`,borderRadius:"4px",padding:"18px 22px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:"12px",marginBottom:"8px",flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:"140px"}}>
+                    <div style={{fontSize:"15px",color:"#e8dcc8",marginBottom:"4px"}}>{law.name}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:"5px",fontSize:"10px",color:law.candidate.color,letterSpacing:"2px",textTransform:"uppercase"}}>
+                        <span style={{display:"inline-block",width:"6px",height:"6px",borderRadius:"50%",background:law.candidate.color}}/>{law.candidate.name}
+                      </span>
+                      <span style={{fontSize:"9px",padding:"2px 7px",borderRadius:"3px",background:ti.bg,border:`1px solid ${ti.border}`,color:ti.color,letterSpacing:"1px"}}>{ti.label}</span>
+                    </div>
+                  </div>
+                  <div style={{fontSize:"10px",color:DIM,opacity:.5}}>#{idx+1}</div>
+                </div>
+                {law.desc ? (
+                  <div style={{fontSize:"12px",color:SOFT,lineHeight:"1.7",fontStyle:"italic",marginBottom:"12px",paddingLeft:"10px",borderLeft:"1px solid rgba(255,255,255,0.07)"}}>{law.desc}</div>
+                ) : (
+                  <div style={{fontSize:"10px",color:"#5a4a30",fontStyle:"italic",marginBottom:"12px"}}>No description.</div>
+                )}
+                <div style={{display:"flex",gap:"12px",flexWrap:"wrap",alignItems:"flex-start"}}>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:"5px",flex:2}}>
+                    {law.effects.map(({classIdx,type}) => (
+                      <span key={classIdx} style={{fontSize:"9px",padding:"2px 8px",borderRadius:"3px",
+                        background:type==="bonus"?"rgba(80,160,100,0.12)":"rgba(200,80,60,0.12)",
+                        border:`1px solid ${type==="bonus"?"rgba(80,160,100,0.3)":"rgba(200,80,60,0.3)"}`,
+                        color:type==="bonus"?"#80c890":"#e08060",
+                      }}>{type==="bonus"?"+":"-"} {CLASSES[classIdx]}</span>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:"4px",flex:1}}>
+                    {law.effects.map(({classIdx,type},ii) => {
+                      const d = type==="bonus"?-1:+2;
+                      return (
+                        <span key={ii} style={{fontSize:"8px",padding:"1px 5px",borderRadius:"3px",
+                          background:d>0?"rgba(200,80,60,0.08)":"rgba(80,160,100,0.08)",
+                          border:`1px solid ${d>0?"rgba(200,80,60,0.2)":"rgba(80,160,100,0.2)"}`,
+                          color:d>0?"#c47a5a":"#6db87a",
+                        }}>{d>0?"+"+d:""+d} agit {CLASSES[classIdx]}</span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+// ── GOVERNMENT TAB ────────────────────────────────────────────────────────────
+
+const MINISTRIES = [
+  { id:"pm",       title:"Prime Minister",         desc:"Heads the government. +1 action per season." },
+  { id:"interior", title:"Interior Minister",      desc:"Oversees internal order and administration." },
+  { id:"finance",  title:"Finance Minister",       desc:"Controls the treasury and economic policy." },
+  { id:"war",      title:"War Minister",           desc:"Commands the armed forces." },
+  { id:"church",   title:"Church Affairs",         desc:"Manages relations with the Church." },
+  { id:"justice",  title:"Justice Minister",       desc:"Oversees courts and the legal system." },
+  { id:"foreign",  title:"Foreign Affairs",        desc:"Manages diplomatic relations with foreign powers." },
+  { id:"education",title:"Education Minister",     desc:"Oversees public instruction and universities." },
+];
+
+function GovernmentTab({candidates, government, setGovernment, setData, turn}) {
+  const season = getSeason(turn), year = getYear(turn);
+  const [editMinistry, setEditMinistry] = useState(null); // ministry id being assigned
+  const [showDecreeForm, setShowDecreeForm] = useState(false);
+  const [decreeName,  setDecreeName]  = useState("");
+  const [decreeDesc,  setDecreeDesc]  = useState("");
+  const [decreeFx,    setDecreeFx]    = useState(CLASSES.map(() => "neutral"));
+  const [decreeRegion, setDecreeRegion] = useState("all");
+  const [vetoed,      setVetoed]      = useState(null); // null | "passed" | "vetoed"
+
+  const pm = government.pm ? candidates.find(c => c.id === government.pm) : null;
+
+  const assignMinistry = (ministryId, candId) => {
+    setGovernment(g => ({...g, [ministryId]: candId || null}));
+    setEditMinistry(null);
+  };
+
+  const addDecree = () => {
+    if (!decreeName.trim()) return;
+    const effects = decreeFx.map((e,i) => ({classIdx:i,type:e})).filter(e => e.type !== "neutral");
+    const decree  = {
+      id: Date.now(),
+      name: decreeName.trim(),
+      desc: decreeDesc.trim(),
+      effects,
+      region: decreeRegion,
+      status: "pending",
+      turn,
+    };
+    setGovernment(g => ({...g, decrees:[...(g.decrees||[]), decree]}));
+    setDecreeName(""); setDecreeDesc(""); setDecreeFx(CLASSES.map(()=>"neutral")); setDecreeRegion("all"); setShowDecreeForm(false);
+  };
+
+  const resolveDecree = (did, resolution) => {
+    const decree = (government.decrees||[]).find(d => d.id===did);
+    if (resolution==="passed" && decree && decree.effects.length) {
+      setData(prev => {
+        const next = prev.map(row => [...row]);
+        decree.effects.forEach(({classIdx, type}) => {
+          const delta = type==="bonus" ? +1 : -1;
+          if (decree.region === "all") {
+            next[classIdx] = next[classIdx].map(v => Math.max(1, Math.min(10, v + delta)));
+          } else {
+            next[classIdx][decree.region] = Math.max(1, Math.min(10, next[classIdx][decree.region] + delta));
+          }
+        });
+        return next;
+      });
+    }
+    setGovernment(g => ({
+      ...g,
+      decrees: (g.decrees||[]).map(d => d.id===did ? {...d, status:resolution} : d),
+    }));
+  };
+
+  const removeDecree = did => setGovernment(g => ({...g, decrees:(g.decrees||[]).filter(d=>d.id!==did)}));
+
+  const pendingDecrees  = (government.decrees||[]).filter(d => d.status==="pending");
+  const resolvedDecrees = (government.decrees||[]).filter(d => d.status!=="pending");
+
+  return (
+    <div style={{maxWidth:"720px",margin:"0 auto",padding:"24px 16px"}}>
+
+      {/* ── header ── */}
+      <div style={{textAlign:"center",marginBottom:"28px"}}>
+        <div style={{fontSize:"9px",letterSpacing:"6px",color:DIM,textTransform:"uppercase",marginBottom:"4px"}}>Royal Government</div>
+        <div style={{fontSize:"22px",color:"#e8dcc8",letterSpacing:"3px",textTransform:"uppercase"}}>Kingdom of Azzuria</div>
+        <div style={{fontSize:"10px",color:GOLD,letterSpacing:"3px",marginTop:"4px"}}>{season} {year}</div>
+        <div style={{width:"60px",height:"1px",background:"linear-gradient(to right,transparent,"+GOLD+",transparent)",margin:"12px auto 0"}}/>
+      </div>
+
+      {/* ── cabinet ── */}
+      <div style={{marginBottom:"32px"}}>
+        <div style={{fontSize:"9px",letterSpacing:"5px",color:DIM,textTransform:"uppercase",marginBottom:"14px"}}>Cabinet</div>
+        <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+          {MINISTRIES.map(m => {
+            const holder = government[m.id] ? candidates.find(c=>c.id===government[m.id]) : null;
+            const isEditing = editMinistry === m.id;
+            const isPM = m.id === "pm";
+            return (
+              <div key={m.id} style={{
+                padding:"10px 14px",
+                background: holder ? "rgba(255,255,255,0.025)" : "rgba(255,255,255,0.01)",
+                border:`1px solid ${holder?(isPM?"rgba(201,168,76,0.3)":holder.color+"33"):"rgba(255,255,255,0.06)"}`,
+                borderLeft: holder ? `3px solid ${isPM?GOLD:holder.color}` : "3px solid rgba(255,255,255,0.08)",
+                borderRadius:"5px",
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:"6px",marginBottom:"2px"}}>
+                      {isPM && <span style={{fontSize:"9px",color:GOLD}}>👑</span>}
+                      <span style={{fontSize:"11px",color:"#e8dcc8",letterSpacing:"1px"}}>{m.title}</span>
+                      {isPM && holder && <span style={{fontSize:"8px",color:GOLD,border:"1px solid rgba(201,168,76,0.3)",borderRadius:"3px",padding:"1px 5px",letterSpacing:"1px"}}>+1 ACTION</span>}
+                    </div>
+                    <div style={{fontSize:"9px",color:DIM}}>{m.desc}</div>
+                  </div>
+                  {holder ? (
+                    <div style={{display:"flex",alignItems:"center",gap:"6px",flexShrink:0}}>
+                      <div style={{width:"7px",height:"7px",borderRadius:"50%",background:holder.color}}/>
+                      <span style={{fontSize:"10px",color:holder.color}}>{holder.name}</span>
+                      <button onClick={()=>setEditMinistry(isEditing?null:m.id)} style={{background:"none",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:SOFT,cursor:"pointer",fontSize:"9px",padding:"2px 6px",fontFamily:"Georgia,serif"}}>✎</button>
+                      <button onClick={()=>assignMinistry(m.id,null)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"9px",padding:"2px 6px",fontFamily:"Georgia,serif"}}>×</button>
+                    </div>
+                  ) : (
+                    <button onClick={()=>setEditMinistry(isEditing?null:m.id)} style={{
+                      padding:"5px 12px",background:"rgba(255,255,255,0.03)",border:"1px dashed rgba(255,255,255,0.12)",
+                      borderRadius:"4px",color:DIM,cursor:"pointer",fontSize:"9px",fontFamily:"Georgia,serif",letterSpacing:"1px",flexShrink:0,
+                    }}>Appoint</button>
+                  )}
+                </div>
+                {/* candidate picker */}
+                {isEditing && (
+                  <div style={{marginTop:"10px",display:"flex",flexWrap:"wrap",gap:"5px",paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
+                    {candidates.map(c => (
+                      <button key={c.id} onClick={()=>assignMinistry(m.id,c.id)} style={{
+                        padding:"5px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",letterSpacing:"1px",
+                        background:government[m.id]===c.id?"rgba(255,255,255,0.06)":"rgba(255,255,255,0.02)",
+                        border:`1px solid ${government[m.id]===c.id?c.color+"66":"rgba(255,255,255,0.1)"}`,
+                        borderRadius:"4px",color:c.color,
+                      }}>{c.name}</button>
+                    ))}
+                    <button onClick={()=>assignMinistry(m.id,null)} style={{padding:"5px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",background:"transparent",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"4px",color:"#c4605a",letterSpacing:"1px"}}>Vacate</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── royal decrees ── */}
+      <div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"14px"}}>
+          <div style={{fontSize:"9px",letterSpacing:"5px",color:DIM,textTransform:"uppercase"}}>Royal Decrees</div>
+          <button onClick={()=>setShowDecreeForm(f=>!f)} style={{
+            padding:"5px 12px",background:showDecreeForm?"rgba(155,127,186,0.1)":"rgba(255,255,255,0.03)",
+            border:`1px solid ${showDecreeForm?"rgba(155,127,186,0.4)":"rgba(255,255,255,0.1)"}`,
+            borderRadius:"4px",color:showDecreeForm?"#9b7fba":SOFT,cursor:"pointer",fontSize:"9px",
+            fontFamily:"Georgia,serif",letterSpacing:"2px",textTransform:"uppercase",
+          }}>{showDecreeForm?"Cancel":"+ Issue Decree"}</button>
+        </div>
+
+        {/* decree form */}
+        {showDecreeForm && (
+          <div style={{background:"rgba(155,127,186,0.04)",border:"1px solid rgba(155,127,186,0.2)",borderRadius:"6px",padding:"16px",marginBottom:"14px"}}>
+            <input value={decreeName} onChange={e=>setDecreeName(e.target.value)}
+              placeholder="Decree name..." style={{...INPUT,marginBottom:"8px"}}/>
+            <textarea value={decreeDesc} onChange={e=>setDecreeDesc(e.target.value)}
+              placeholder="Description (optional)" rows={2}
+              style={{...INPUT,color:SOFT,fontSize:"12px",marginBottom:"12px",resize:"vertical",lineHeight:"1.5"}}></textarea>
+
+            {/* region scope */}
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontSize:"9px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"6px"}}>Scope</div>
+              <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+                <button onClick={()=>setDecreeRegion("all")} style={{
+                  padding:"4px 10px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",borderRadius:"3px",
+                  background:decreeRegion==="all"?"rgba(201,168,76,0.15)":"transparent",
+                  border:`1px solid ${decreeRegion==="all"?"rgba(201,168,76,0.5)":"rgba(255,255,255,0.08)"}`,
+                  color:decreeRegion==="all"?GOLD:SOFT,
+                }}>National</button>
+                {REGIONS.map((r,i) => (
+                  <button key={r} onClick={()=>setDecreeRegion(i)} style={{
+                    padding:"4px 10px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",borderRadius:"3px",
+                    background:decreeRegion===i?"rgba(155,127,186,0.15)":"transparent",
+                    border:`1px solid ${decreeRegion===i?"rgba(155,127,186,0.5)":"rgba(255,255,255,0.06)"}`,
+                    color:decreeRegion===i?"#9b7fba":DIM,
+                  }}>{r}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* class effects */}
+            <div style={{fontSize:"9px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"8px"}}>Class Effects</div>
+            <div style={{display:"flex",flexDirection:"column",gap:"4px",marginBottom:"12px"}}>
+              {CLASSES.map((cls,i) => {
+                const fx = decreeFx[i];
+                return (
+                  <div key={cls} style={{display:"flex",alignItems:"center",gap:"8px",padding:"6px 10px",background:"rgba(255,255,255,0.015)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:"4px"}}>
+                    <span style={{display:"inline-block",width:"6px",height:"6px",borderRadius:"2px",background:CLASS_COLORS[i],flexShrink:0}}/>
+                    <span style={{fontSize:"10px",color:"#b0a080",width:"120px",flexShrink:0}}>{cls}</span>
+                    <div style={{display:"flex",gap:"2px",flexShrink:0}}>
+                      {["bonus","neutral","malus"].map(type => {
+                        const isA = fx===type;
+                        const col = type==="bonus"?"#6db87a":type==="malus"?"#c4605a":SOFT;
+                        const lbl = type==="bonus"?"Y":type==="malus"?"N":"–";
+                        return (
+                          <button key={type} onClick={()=>setDecreeFx(p=>{const n=[...p];n[i]=type;return n;})} style={{
+                            width:"24px",height:"24px",cursor:"pointer",fontSize:"11px",fontFamily:"Georgia,serif",padding:0,borderRadius:"3px",
+                            background:isA?col+"28":"transparent",
+                            border:`1px solid ${isA?col:"rgba(255,255,255,0.08)"}`,
+                            color:isA?col:SOFT,
+                          }}>{lbl}</button>
+                        );
+                      })}
+                    </div>
+                    {fx!=="neutral" && (
+                      <span style={{fontSize:"8px",padding:"1px 5px",borderRadius:"3px",
+                        background:fx==="bonus"?"rgba(80,160,100,0.12)":"rgba(200,80,60,0.12)",
+                        border:`1px solid ${fx==="bonus"?"rgba(80,160,100,0.3)":"rgba(200,80,60,0.3)"}`,
+                        color:fx==="bonus"?"#6db87a":"#c4605a"}}>inf {fx==="bonus"?"+1":"−1"}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:"9px",color:DIM}}>
+                {decreeRegion==="all" ? "Affects all regions" : "Affects " + REGIONS[decreeRegion] + " only"}
+              </span>
+              <button onClick={addDecree} style={{padding:"6px 18px",background:"rgba(155,127,186,0.15)",border:"1px solid rgba(155,127,186,0.4)",borderRadius:"4px",color:"#9b7fba",cursor:"pointer",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif"}}>Issue</button>
+            </div>
+          </div>
+        )}
+
+        {/* pending decrees */}
+        {pendingDecrees.length > 0 && (
+          <div style={{marginBottom:"16px"}}>
+            <div style={{fontSize:"8px",letterSpacing:"3px",color:"#c9a84c",textTransform:"uppercase",marginBottom:"8px"}}>Awaiting Cabinet Response</div>
+            <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+              {pendingDecrees.map(decree => {
+                const relevantMinistries = MINISTRIES.filter(m => m.id!=="pm" && government[m.id]);
+                return (
+                  <div key={decree.id} style={{padding:"12px 14px",background:"rgba(201,168,76,0.04)",border:"1px solid rgba(201,168,76,0.2)",borderRadius:"5px"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:"8px",marginBottom:"8px"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:"12px",color:"#e8dcc8",marginBottom:"2px"}}>{decree.name}</div>
+                        {decree.desc && <div style={{fontSize:"10px",color:SOFT,fontStyle:"italic",marginBottom:"4px"}}>{decree.desc}</div>}
+                        <div style={{fontSize:"8px",color:DIM,letterSpacing:"1px"}}>{decree.region==="all"?"National decree":"Regional: "+REGIONS[decree.region]} · Turn {decree.turn}</div>
+                      </div>
+                      <button onClick={()=>removeDecree(decree.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"9px",padding:"2px 6px",flexShrink:0}}>×</button>
+                    </div>
+                    {/* effects */}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px",marginBottom:"10px"}}>
+                      {decree.effects.map(({classIdx,type}) => (
+                        <span key={classIdx} style={{fontSize:"9px",padding:"1px 7px",borderRadius:"3px",
+                          background:type==="bonus"?"rgba(80,160,100,0.1)":"rgba(200,80,60,0.1)",
+                          border:`1px solid ${type==="bonus"?"rgba(80,160,100,0.25)":"rgba(200,80,60,0.25)"}`,
+                          color:type==="bonus"?"#80c890":"#e08060"}}>
+                          {type==="bonus"?"+":"−"} {CLASSES[classIdx]}
+                        </span>
+                      ))}
+                    </div>
+                    {/* veto / pass buttons */}
+                    <div style={{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"8px",color:DIM,letterSpacing:"1px",marginRight:"4px"}}>Cabinet:</span>
+                      <button onClick={()=>resolveDecree(decree.id,"passed")} style={{
+                        padding:"5px 14px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",
+                        borderRadius:"4px",background:"rgba(80,160,100,0.12)",border:"1px solid rgba(80,160,100,0.35)",color:"#6db87a",
+                      }}>✓ Pass</button>
+                      <button onClick={()=>resolveDecree(decree.id,"vetoed")} style={{
+                        padding:"5px 14px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",
+                        borderRadius:"4px",background:"rgba(200,80,60,0.1)",border:"1px solid rgba(200,80,60,0.3)",color:"#c4605a",
+                      }}>✗ Veto</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* resolved decrees */}
+        {resolvedDecrees.length > 0 && (
+          <div>
+            <div style={{fontSize:"8px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"8px"}}>Decree History</div>
+            <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
+              {resolvedDecrees.slice().reverse().map(decree => {
+                const passed = decree.status==="passed";
+                return (
+                  <div key={decree.id} style={{
+                    padding:"8px 12px",display:"flex",alignItems:"center",gap:"10px",
+                    background:"rgba(255,255,255,0.01)",
+                    border:`1px solid ${passed?"rgba(80,160,100,0.12)":"rgba(200,80,60,0.1)"}`,
+                    borderLeft:`3px solid ${passed?"#6db87a":"#c4605a"}`,
+                    borderRadius:"4px",opacity:.8,
+                  }}>
+                    <span style={{fontSize:"10px",color:passed?"#6db87a":"#c4605a",flexShrink:0}}>{passed?"✓":"✗"}</span>
+                    <span style={{fontSize:"10px",color:"#b0a080",flex:1}}>{decree.name}</span>
+                    <span style={{fontSize:"8px",color:DIM,flexShrink:0}}>{decree.region==="all"?"National":REGIONS[decree.region]}</span>
+                    <span style={{fontSize:"8px",color:passed?"#6db87a":"#c4605a",letterSpacing:"1px",textTransform:"uppercase",flexShrink:0}}>{decree.status}</span>
+                    <button onClick={()=>removeDecree(decree.id)} style={{background:"none",border:"none",color:DIM,cursor:"pointer",fontSize:"11px",padding:"0 2px",flexShrink:0}}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {pendingDecrees.length===0 && resolvedDecrees.length===0 && (
+          <div style={{textAlign:"center",padding:"20px",color:DIM,fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.05)",borderRadius:"5px"}}>No decrees issued</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ELECTION TAB ──────────────────────────────────────────────────────────────
+
+function ElectionTab({candidates, data, agitation, natUnrest, turn, senateHolder, setSenateHolder}) {
+  const [results,      setResults]      = useState(null);
+  const [rolling,      setRolling]      = useState(false);
+  const [showRolls,    setShowRolls]    = useState(false);
+  const [filterR,      setFilterR]      = useState(null);
+  const [senResults,   setSenResults]   = useState(null);
+  const [senRolling,   setSenRolling]   = useState(false);
+  const [showSenRolls, setShowSenRolls] = useState(false);
+
+  const season = getSeason(turn);
+  const year   = getYear(turn);
+
+  const runElection = () => {
+    setRolling(true);
+    setTimeout(() => {
+      // Pre-compute popularity per candidate per region
+      const popByRegion = candidates.map(c => ({
+        c,
+        regionPop: calcPopularity(c, data, agitation, natUnrest),
+      }));
+
+      // Roll each of the 204 colleges
+      const collegeResults = COLLEGES.map((col, idx) => {
+        const rIdx = col.r;
+        const rolls = popByRegion.map(({c, regionPop}) => {
+          const pop   = regionPop[rIdx];
+          const d20   = Math.floor(Math.random() * 20) + 1;
+          return {c, d20, pop, total: d20 + pop};
+        });
+        rolls.sort((a,b) => b.total - a.total || Math.random() - 0.5);
+        return {idx: idx+1, name: col.n, rIdx, winner: rolls[0], rolls};
+      });
+
+      // Tally seats per candidate total and per region
+      const seatTotals = {};
+      const regionSeats = REGIONS.map(() => {
+        const obj = {};
+        candidates.forEach(c => { obj[c.id] = 0; });
+        return obj;
+      });
+      candidates.forEach(c => { seatTotals[c.id] = 0; });
+      collegeResults.forEach(cr => {
+        seatTotals[cr.winner.c.id]++;
+        regionSeats[cr.rIdx][cr.winner.c.id]++;
+      });
+
+      const ranked = [...candidates].sort((a,b) => (seatTotals[b.id]||0) - (seatTotals[a.id]||0));
+      const winner = ranked[0];
+      const hasMajority = (seatTotals[winner.id]||0) >= MAJORITY;
+
+      setResults({collegeResults, seatTotals, regionSeats, ranked, winner, hasMajority});
+      setRolling(false);
+    }, 400);
+  };
+
+  const reset = () => { setResults(null); setShowRolls(false); setFilterR(null); };
+  const resetSenate = () => { setSenResults(null); setShowSenRolls(false); };
+
+  const runSenateElection = () => {
+    setSenRolling(true);
+    setTimeout(() => {
+      const pops = candidates.map(c => ({
+        c, regionPop: calcPopularity(c, data, agitation, natUnrest),
+      }));
+      // 2 senate seats per region, same d20+pop mechanic
+      const senColleges = REGIONS.flatMap((region, rIdx) =>
+        Array.from({length: SENATE_SEATS_PER_REGION}, (_, sIdx) => {
+          const rolls = pops.map(({c, regionPop}) => {
+            const pop = regionPop[rIdx];
+            const d20 = Math.floor(Math.random() * 20) + 1;
+            return {c, d20, pop, total: d20 + pop};
+          });
+          rolls.sort((a,b) => b.total - a.total || Math.random() - 0.5);
+          return {region, rIdx, seat: sIdx+1, winner: rolls[0], rolls};
+        })
+      );
+      const senTotals = {};
+      candidates.forEach(c => { senTotals[c.id] = 0; });
+      senColleges.forEach(col => { senTotals[col.winner.c.id]++; });
+      const senRanked = [...candidates].sort((a,b) => (senTotals[b.id]||0) - (senTotals[a.id]||0));
+      const senWinner = senRanked[0];
+      const hasSenMajority = (senTotals[senWinner.id]||0) >= SENATE_MAJORITY;
+      if (hasSenMajority) setSenateHolder(senWinner.id);
+      else setSenateHolder(null);
+      setSenResults({senColleges, senTotals, senRanked, senWinner, hasSenMajority});
+      setSenRolling(false);
+    }, 400);
+  };
+
+  const ParliamentGrid = ({seatTotals}) => {
+    const squares = [];
+    const sorted = [...candidates].sort((a,b) => (seatTotals[b.id]||0) - (seatTotals[a.id]||0));
+    sorted.forEach(c => {
+      for (let i = 0; i < (seatTotals[c.id]||0); i++) squares.push(c.color);
+    });
+    return (
+      <div style={{display:"flex",flexWrap:"wrap",gap:"2px",justifyContent:"center",padding:"12px",background:"rgba(0,0,0,0.2)",borderRadius:"6px",border:"1px solid rgba(255,255,255,0.06)"}}>
+        {squares.map((col, i) => (
+          <div key={i} style={{width:"8px",height:"8px",borderRadius:"1px",background:col,opacity:.85}}/>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{padding:"28px 24px",maxWidth:"960px",margin:"0 auto"}}>
+      {/* header */}
+      <div style={{textAlign:"center",marginBottom:"24px"}}>
+        <div style={{fontSize:"10px",letterSpacing:"6px",color:GOLD,textTransform:"uppercase",marginBottom:"6px",opacity:.8}}>General Election</div>
+        <div style={{fontSize:"26px",fontWeight:"normal",color:"#e8dcc8",letterSpacing:"3px",textTransform:"uppercase",marginBottom:"4px"}}>Kingdom of Azzuria</div>
+        <div style={{fontSize:"11px",color:SOFT,letterSpacing:"3px",textTransform:"uppercase"}}>{season} {year} — 204 Colleges — Majority: {MAJORITY} Seats</div>
+        <div style={{width:"80px",height:"1px",background:"linear-gradient(to right,transparent,"+GOLD+",transparent)",margin:"14px auto 0"}}/>
+      </div>
+
+      {/* rules */}
+      <div style={{marginBottom:"20px",padding:"12px 16px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"6px",fontSize:"10px",color:DIM,lineHeight:"1.9",letterSpacing:"1px"}}>
+        <span style={{color:GOLD,letterSpacing:"3px",textTransform:"uppercase",marginRight:"10px"}}>Rules</span>
+        For each of the 204 colleges, every candidate rolls a d20 and adds their regional popularity. Highest total wins the seat. First to {MAJORITY} holds a majority.
+      </div>
+
+      {/* seat map by region */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:"5px",marginBottom:"20px",justifyContent:"center"}}>
+        {REGIONS.map((r,i) => (
+          <div key={r} style={{padding:"5px 9px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"4px",textAlign:"center",minWidth:"62px"}}>
+            <div style={{fontSize:"8px",color:GOLD,letterSpacing:"1px",textTransform:"uppercase",marginBottom:"2px"}}>{r}</div>
+            <div style={{fontSize:"14px",fontWeight:"bold",color:"#e8dcc8"}}>{REGION_SEATS[i]}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* run button */}
+      {!results && (
+        <div style={{textAlign:"center",marginBottom:"28px"}}>
+          <button onClick={runElection} disabled={rolling || candidates.length < 2} style={{
+            padding:"14px 40px",cursor:rolling?"wait":"pointer",fontFamily:"Georgia,serif",
+            fontSize:"14px",letterSpacing:"4px",textTransform:"uppercase",borderRadius:"4px",
+            background:rolling?"rgba(201,168,76,0.1)":"rgba(201,168,76,0.2)",
+            border:`1px solid ${rolling?"rgba(201,168,76,0.3)":"rgba(201,168,76,0.6)"}`,
+            color:rolling?"rgba(201,168,76,0.5)":GOLD,
+            opacity:candidates.length<2?.4:1,
+          }}>{rolling?"Rolling...":"Call the Election"}</button>
+          {candidates.length < 2 && <div style={{fontSize:"10px",color:DIM,marginTop:"8px",letterSpacing:"2px"}}>Add at least 2 candidates first</div>}
+        </div>
+      )}
+
+      {results && (
+        <div>
+          {/* winner banner */}
+          <div style={{
+            marginBottom:"20px",padding:"20px 24px",textAlign:"center",
+            background:results.hasMajority?"rgba(201,168,76,0.08)":"rgba(255,255,255,0.02)",
+            border:`1px solid ${results.hasMajority?"rgba(201,168,76,0.35)":"rgba(255,255,255,0.08)"}`,
+            borderRadius:"6px",
+          }}>
+            <div style={{fontSize:"10px",letterSpacing:"4px",color:DIM,textTransform:"uppercase",marginBottom:"6px"}}>
+              {results.hasMajority?"Majority Secured":"Largest Party — No Majority"}
+            </div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"12px",marginBottom:"8px"}}>
+              <span style={{display:"inline-block",width:"12px",height:"12px",borderRadius:"50%",background:results.winner.color}}/>
+              <span style={{fontSize:"22px",color:results.winner.color,letterSpacing:"2px"}}>{results.winner.name}</span>
+            </div>
+            <div style={{fontSize:"32px",fontWeight:"bold",color:results.winner.color,marginBottom:"4px"}}>
+              {results.seatTotals[results.winner.id]} <span style={{fontSize:"14px",opacity:.6}}>/ {TOTAL_SEATS} seats</span>
+            </div>
+            {!results.hasMajority && (
+              <div style={{fontSize:"11px",color:"#c47a5a",letterSpacing:"2px",marginTop:"4px"}}>{MAJORITY - results.seatTotals[results.winner.id]} more seats needed for majority</div>
+            )}
+          </div>
+
+          {/* parliament grid */}
+          <div style={{marginBottom:"20px"}}>
+            <div style={{fontSize:"10px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",textAlign:"center",marginBottom:"10px"}}>Parliament — 204 Seats</div>
+            <ParliamentGrid seatTotals={results.seatTotals}/>
+            <div style={{display:"flex",flexWrap:"wrap",gap:"12px",justifyContent:"center",marginTop:"10px"}}>
+              {results.ranked.map(c => (
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:"7px",fontSize:"11px"}}>
+                  <div style={{width:"10px",height:"10px",borderRadius:"2px",background:c.color}}/>
+                  <span style={{color:c.color}}>{c.name}</span>
+                  <span style={{fontWeight:"bold",color:"#e8dcc8"}}>{results.seatTotals[c.id]}</span>
+                  <span style={{color:DIM,fontSize:"9px"}}>({Math.round(results.seatTotals[c.id]/TOTAL_SEATS*100)}%)</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* regional breakdown */}
+          <div style={{marginBottom:"20px"}}>
+            <div style={{fontSize:"10px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"12px"}}>Regional Breakdown</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:"7px"}}>
+              {REGIONS.map((r, rIdx) => {
+                const rs = results.regionSeats[rIdx];
+                const regionWinnerId = results.ranked.reduce((best, c) => (rs[c.id]||0) > (rs[best]||0) ? c.id : best, results.ranked[0].id);
+                const regionWinner = candidates.find(c => c.id === regionWinnerId);
+                return (
+                  <div key={r} style={{padding:"10px 12px",background:"rgba(255,255,255,0.02)",borderLeft:`3px solid ${regionWinner.color}`,border:`1px solid ${regionWinner.color}22`,borderLeft:`3px solid ${regionWinner.color}`,borderRadius:"4px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:"7px"}}>
+                      <span style={{fontSize:"10px",color:"#e8dcc8",letterSpacing:"1px",textTransform:"uppercase"}}>{r}</span>
+                      <span style={{fontSize:"9px",color:DIM}}>{REGION_SEATS[rIdx]} seats</span>
+                    </div>
+                    {results.ranked.map(c => {
+                      const n = rs[c.id]||0;
+                      if (!n) return null;
+                      const pct = Math.round(n/REGION_SEATS[rIdx]*100);
+                      return (
+                        <div key={c.id} style={{marginBottom:"4px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:"2px"}}>
+                            <span style={{fontSize:"9px",color:c.color}}>{c.name}</span>
+                            <span style={{fontSize:"9px",color:c.color,fontWeight:"bold"}}>{n} ({pct}%)</span>
+                          </div>
+                          <div style={{height:"3px",background:"rgba(255,255,255,0.06)",borderRadius:"2px",overflow:"hidden"}}>
+                            <div style={{width:pct+"%",height:"100%",background:c.color,borderRadius:"2px"}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* college rolls */}
+          <div style={{marginBottom:"20px"}}>
+            <button onClick={() => setShowRolls(f=>!f)} style={{
+              width:"100%",padding:"8px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",
+              letterSpacing:"3px",textTransform:"uppercase",borderRadius:"4px",
+              background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",color:SOFT,
+            }}>{showRolls?"Hide":"Show"} All 204 College Rolls</button>
+
+            {showRolls && (
+              <div style={{marginTop:"12px"}}>
+                {/* region filter */}
+                <div style={{display:"flex",flexWrap:"wrap",gap:"4px",marginBottom:"10px",justifyContent:"center"}}>
+                  <button onClick={()=>setFilterR(null)} style={{padding:"3px 9px",cursor:"pointer",fontSize:"9px",fontFamily:"Georgia,serif",letterSpacing:"1px",textTransform:"uppercase",borderRadius:"3px",background:filterR===null?"rgba(201,168,76,0.2)":"transparent",border:`1px solid ${filterR===null?"rgba(201,168,76,0.5)":"rgba(255,255,255,0.1)"}`,color:filterR===null?GOLD:DIM}}>All</button>
+                  {REGIONS.map((r,i) => (
+                    <button key={r} onClick={()=>setFilterR(i)} style={{padding:"3px 9px",cursor:"pointer",fontSize:"9px",fontFamily:"Georgia,serif",letterSpacing:"1px",textTransform:"uppercase",borderRadius:"3px",background:filterR===i?"rgba(201,168,76,0.2)":"transparent",border:`1px solid ${filterR===i?"rgba(201,168,76,0.5)":"rgba(255,255,255,0.1)"}`,color:filterR===i?GOLD:DIM}}>{r}</button>
+                  ))}
+                </div>
+                <div style={{maxHeight:"420px",overflowY:"auto",display:"flex",flexDirection:"column",gap:"3px"}}>
+                  {results.collegeResults.filter(cr => filterR===null || cr.rIdx===filterR).map(cr => (
+                    <div key={cr.idx} style={{display:"flex",alignItems:"center",gap:"8px",padding:"5px 10px",background:"rgba(255,255,255,0.02)",border:`1px solid ${cr.winner.c.color}22`,borderLeft:`2px solid ${cr.winner.c.color}`,borderRadius:"3px",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"9px",color:DIM,minWidth:"22px",textAlign:"right"}}>{cr.idx}</span>
+                      <span style={{fontSize:"10px",color:"#b0a080",flex:1,minWidth:"100px"}}>{cr.name}</span>
+                      <span style={{fontSize:"8px",color:GOLD,letterSpacing:"1px",textTransform:"uppercase"}}>{REGIONS[cr.rIdx]}</span>
+                      <span style={{fontSize:"9px",color:cr.winner.c.color,fontWeight:"bold",minWidth:"70px",textAlign:"right"}}>{cr.winner.c.name}</span>
+                      <div style={{display:"flex",gap:"4px"}}>
+                        {cr.rolls.map((roll,i) => (
+                          <span key={i} style={{fontSize:"8px",padding:"1px 5px",borderRadius:"2px",background:roll.c.color+"22",color:roll.c.color,border:`1px solid ${roll.c.color}44`}}>
+                            d{roll.d20}{roll.pop>=0?"+":""}{ roll.pop}={roll.total}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* actions */}
+          <div style={{display:"flex",gap:"10px",justifyContent:"center"}}>
+            <button onClick={runElection} style={{padding:"9px 24px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",borderRadius:"4px",background:"rgba(201,168,76,0.15)",border:"1px solid rgba(201,168,76,0.4)",color:GOLD}}>Re-roll Chamber</button>
+            <button onClick={reset} style={{padding:"9px 24px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",borderRadius:"4px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",color:SOFT}}>Clear Chamber</button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ SENATE ELECTION ══ */}
+      <div style={{marginTop:"40px",paddingTop:"28px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+        <div style={{textAlign:"center",marginBottom:"20px"}}>
+          <div style={{fontSize:"10px",letterSpacing:"6px",color:"#9b7fba",textTransform:"uppercase",marginBottom:"6px",opacity:.8}}>Senate Election</div>
+          <div style={{fontSize:"22px",fontWeight:"normal",color:"#e8dcc8",letterSpacing:"3px",textTransform:"uppercase",marginBottom:"4px"}}>Kingdom of Azzuria — Upper House</div>
+          <div style={{fontSize:"11px",color:SOFT,letterSpacing:"3px",textTransform:"uppercase"}}>{season} {year} — {SENATE_TOTAL} Seats — Majority: {SENATE_MAJORITY}</div>
+          <div style={{width:"60px",height:"1px",background:"linear-gradient(to right,transparent,#9b7fba,transparent)",margin:"12px auto 0"}}/>
+        </div>
+
+        <div style={{marginBottom:"16px",padding:"10px 14px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"6px",fontSize:"10px",color:DIM,lineHeight:"1.9"}}>
+          <span style={{color:"#9b7fba",letterSpacing:"3px",textTransform:"uppercase",marginRight:"10px"}}>Rules</span>
+          2 senate seats per division ({SENATE_TOTAL} total). Same d20 + regional popularity mechanic as the Chamber.
+          Senate majority holder gains <span style={{color:GOLD}}>+1 action per season</span>.
+          {senateHolder && (() => { const h = candidates.find(c=>c.id===senateHolder); return h ? <span style={{color:h.color}}> Current holder: {h.name}.</span> : null; })()}
+        </div>
+
+        {/* seat strip */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:"4px",marginBottom:"16px",justifyContent:"center"}}>
+          {REGIONS.map((r,i) => (
+            <div key={r} style={{padding:"4px 8px",background:"rgba(155,127,186,0.05)",border:"1px solid rgba(155,127,186,0.12)",borderRadius:"4px",textAlign:"center",minWidth:"58px"}}>
+              <div style={{fontSize:"8px",color:"#9b7fba",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"2px"}}>{r}</div>
+              <div style={{fontSize:"13px",fontWeight:"bold",color:"#e8dcc8"}}>{SENATE_SEATS_PER_REGION}</div>
+            </div>
+          ))}
+        </div>
+
+        {!senResults && (
+          <div style={{textAlign:"center",marginBottom:"20px"}}>
+            <button onClick={runSenateElection} disabled={senRolling || candidates.length < 2} style={{
+              padding:"12px 36px",cursor:senRolling?"wait":"pointer",fontFamily:"Georgia,serif",
+              fontSize:"13px",letterSpacing:"4px",textTransform:"uppercase",borderRadius:"4px",
+              background:senRolling?"rgba(155,127,186,0.08)":"rgba(155,127,186,0.18)",
+              border:`1px solid ${senRolling?"rgba(155,127,186,0.2)":"rgba(155,127,186,0.5)"}`,
+              color:senRolling?"rgba(155,127,186,0.4)":"#9b7fba",
+              opacity:candidates.length<2?.4:1,
+            }}>{senRolling?"Rolling...":"Hold Senate Election"}</button>
+          </div>
+        )}
+
+        {senResults && (
+          <div>
+            {/* winner banner */}
+            <div style={{
+              marginBottom:"16px",padding:"16px 20px",textAlign:"center",
+              background:senResults.hasSenMajority?"rgba(155,127,186,0.08)":"rgba(255,255,255,0.02)",
+              border:`1px solid ${senResults.hasSenMajority?"rgba(155,127,186,0.35)":"rgba(255,255,255,0.08)"}`,
+              borderRadius:"6px",
+            }}>
+              <div style={{fontSize:"10px",letterSpacing:"4px",color:DIM,textTransform:"uppercase",marginBottom:"4px"}}>
+                {senResults.hasSenMajority?"Senate Majority — +1 Action Per Season":"No Senate Majority"}
+              </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",marginBottom:"6px"}}>
+                <span style={{display:"inline-block",width:"10px",height:"10px",borderRadius:"50%",background:senResults.senWinner.color}}/>
+                <span style={{fontSize:"18px",color:senResults.senWinner.color,letterSpacing:"2px"}}>{senResults.senWinner.name}</span>
+              </div>
+              <div style={{fontSize:"28px",fontWeight:"bold",color:senResults.senWinner.color,marginBottom:"3px"}}>
+                {senResults.senTotals[senResults.senWinner.id]} <span style={{fontSize:"12px",opacity:.6}}>/ {SENATE_TOTAL} seats</span>
+              </div>
+              {!senResults.hasSenMajority && (
+                <div style={{fontSize:"10px",color:"#c47a5a",letterSpacing:"2px",marginTop:"3px"}}>{SENATE_MAJORITY - senResults.senTotals[senResults.senWinner.id]} more needed for majority</div>
+              )}
+            </div>
+
+            {/* seat tally */}
+            <div style={{display:"flex",flexWrap:"wrap",gap:"10px",justifyContent:"center",marginBottom:"16px"}}>
+              {senResults.senRanked.map(c => (
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:"7px",padding:"8px 14px",background:"rgba(255,255,255,0.02)",border:`1px solid ${c.color}22`,borderRadius:"4px"}}>
+                  <div style={{width:"8px",height:"8px",borderRadius:"2px",background:c.color}}/>
+                  <span style={{fontSize:"11px",color:c.color}}>{c.name}</span>
+                  <span style={{fontSize:"18px",fontWeight:"bold",color:"#e8dcc8"}}>{senResults.senTotals[c.id]}</span>
+                  <span style={{fontSize:"9px",color:DIM}}>({Math.round(senResults.senTotals[c.id]/SENATE_TOTAL*100)}%)</span>
+                  {senateHolder===c.id && <span style={{fontSize:"8px",color:"#9b7fba",border:"1px solid rgba(155,127,186,0.4)",borderRadius:"3px",padding:"1px 5px",letterSpacing:"1px"}}>MAJORITY</span>}
+                </div>
+              ))}
+            </div>
+
+            {/* per-region breakdown */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:"6px",marginBottom:"16px"}}>
+              {REGIONS.map((r, rIdx) => {
+                const regionCols = senResults.senColleges.filter(c => c.rIdx===rIdx);
+                const tally = {};
+                candidates.forEach(c => { tally[c.id]=0; });
+                regionCols.forEach(col => { tally[col.winner.c.id]++; });
+                const regionWinner = senResults.senRanked.find(c => tally[c.id]===Math.max(...Object.values(tally)));
+                return (
+                  <div key={r} style={{padding:"8px 10px",background:"rgba(255,255,255,0.02)",borderLeft:`3px solid ${regionWinner.color}`,border:`1px solid ${regionWinner.color}18`,borderLeft:`3px solid ${regionWinner.color}`,borderRadius:"4px"}}>
+                    <div style={{fontSize:"9px",color:"#e8dcc8",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"5px"}}>{r}</div>
+                    {senResults.senRanked.map(c => tally[c.id]>0 ? (
+                      <div key={c.id} style={{display:"flex",justifyContent:"space-between",fontSize:"9px",marginBottom:"2px"}}>
+                        <span style={{color:c.color}}>{c.name}</span>
+                        <span style={{color:c.color,fontWeight:"bold"}}>{tally[c.id]}</span>
+                      </div>
+                    ) : null)}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* senate rolls toggle */}
+            <button onClick={() => setShowSenRolls(f=>!f)} style={{
+              width:"100%",padding:"7px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",
+              letterSpacing:"3px",textTransform:"uppercase",borderRadius:"4px",marginBottom:"10px",
+              background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",color:SOFT,
+            }}>{showSenRolls?"Hide":"Show"} Senate Rolls</button>
+
+            {showSenRolls && (
+              <div style={{maxHeight:"320px",overflowY:"auto",display:"flex",flexDirection:"column",gap:"3px",marginBottom:"12px"}}>
+                {senResults.senColleges.map((col,idx) => (
+                  <div key={idx} style={{display:"flex",alignItems:"center",gap:"8px",padding:"4px 10px",background:"rgba(255,255,255,0.015)",borderLeft:`2px solid ${col.winner.c.color}`,borderRadius:"3px",flexWrap:"wrap"}}>
+                    <span style={{fontSize:"9px",color:DIM,minWidth:"18px"}}>{idx+1}</span>
+                    <span style={{fontSize:"9px",color:"#b0a080",flex:1}}>{col.region} Seat {col.seat}</span>
+                    <span style={{fontSize:"9px",color:col.winner.c.color,fontWeight:"bold",minWidth:"70px",textAlign:"right"}}>{col.winner.c.name}</span>
+                    <div style={{display:"flex",gap:"3px"}}>
+                      {col.rolls.map((roll,i) => (
+                        <span key={i} style={{fontSize:"8px",padding:"1px 4px",borderRadius:"2px",background:roll.c.color+"18",color:roll.c.color,border:`1px solid ${roll.c.color}33`}}>
+                          d{roll.d20}+{roll.pop}={roll.total}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:"8px",justifyContent:"center"}}>
+              <button onClick={runSenateElection} style={{padding:"8px 20px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",borderRadius:"4px",background:"rgba(155,127,186,0.12)",border:"1px solid rgba(155,127,186,0.35)",color:"#9b7fba"}}>Re-roll Senate</button>
+              <button onClick={resetSenate} style={{padding:"8px 20px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"11px",letterSpacing:"3px",textTransform:"uppercase",borderRadius:"4px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.08)",color:SOFT}}>Clear Senate</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+
+function App() {
+  const [loaded,       setLoaded]       = useState(false);
+  const [tab,          setTab]          = useState(0);
+  const [data,         setData]         = useState(INITIAL_DATA.map(r => [...r]));
+  const [candidates,   setCandidates]   = useState([{id:1,name:"Candidate A",color:"#7a9cc4",laws:[],actions:[],actionsLeft:BASE_ACTIONS}]);
+  const [activeCand,   setActiveCand]   = useState(1);
+  const [agitation,    setAgitation]    = useState(Array(8).fill(0));
+  const [turn,         setTurn]         = useState(1);
+  const [senateHolder, setSenateHolder] = useState(null);
+  const [government,     setGovernment]     = useState({pm:null,interior:null,finance:null,war:null,church:null,justice:null,foreign:null,education:null,decrees:[]});
+  const [pendingParties, setPendingParties] = useState([]);
+  const [syncStatus,   setSyncStatus]   = useState("idle");
+  const [binId,        setBinId]        = useState(typeof JSONBIN_BIN_ID !== "undefined" ? JSONBIN_BIN_ID : "");
+  const saveTimer = useRef(null);
+  const isFirstRender = useRef(true);
+
+  // Load saved state on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        // Try Claude shared storage first, fall back to localStorage
+        let s = null;
+        // Try localStorage first (fastest)
+        const raw = localStorage.getItem("azzuria-gamestate");
+        if (raw) { try { s = JSON.parse(raw); } catch(e) {} }
+        // If nothing local, try JSONbin
+        if (!s) { try { s = await jsonbinLoad(); } catch(e) {} }
+        // Also try Claude storage
+        if (!s) { try { const r = await window.storage.get("azzuria-gamestate",true); if(r&&r.value) s=JSON.parse(r.value); } catch(e) {} }
+        if (s) {
+          if (s.data)       setData(s.data);
+          if (s.candidates) { setCandidates(s.candidates); setActiveCand(s.candidates[0]?.id ?? 1); }
+          if (s.agitation)  setAgitation(s.agitation);
+          if (s.turn)       setTurn(s.turn);
+          if (s.senateHolder !== undefined) setSenateHolder(s.senateHolder);
+          if (s.government)       setGovernment(s.government);
+          if (s.pendingParties)   setPendingParties(s.pendingParties);
+        }
+      } catch(e) { /* no saved state, use defaults */ }
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Poll JSONbin for new pending parties every 20s
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setInterval(async () => {
+      try {
+        const res  = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
+          headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
+        });
+        const d = await res.json();
+        if (d.record && d.record.pendingParties) setPendingParties(d.record.pendingParties);
+      } catch(e) {}
+    }, 10000);
+    return () => clearInterval(t);
+  }, [loaded]);
+
+  // Auto-save whenever state changes (skip the very first render tick)
+  useEffect(() => {
+    if (!loaded) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSyncStatus("saving");
+      try {
+        // Fetch latest pendingParties from JSONbin so we never clobber a fresh submission
+        let livePending = pendingParties;
+        if (window.location.protocol !== "file:") {
+          try {
+            const pr = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
+              headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
+            });
+            const pd = await pr.json();
+            if (pd.record && Array.isArray(pd.record.pendingParties)) {
+              // Merge: keep anything in JSONbin not already in local state
+              const localIds = new Set(pendingParties.map(p => p.id));
+              const merged   = [...pendingParties, ...pd.record.pendingParties.filter(p => !localIds.has(p.id))];
+              livePending = merged;
+              if (merged.length !== pendingParties.length) setPendingParties(merged);
+            }
+          } catch(e) { /* keep local pendingParties on fetch error */ }
+        }
+        const state = { turn, agitation, candidates, data, senateHolder, government, pendingParties: livePending, savedAt: Date.now() };
+        const json = JSON.stringify(state);
+        // Save to localStorage always
+        localStorage.setItem("azzuria-gamestate", json);
+        // Save to JSONbin (for Discord bot)
+        // JSONbin only works when hosted (not from file://)
+        if (window.location.protocol !== "file:") {
+          try {
+            await jsonbinSave(state);
+            setBinId(JSONBIN_BIN_ID);
+          } catch(e) { console.error("JSONbin error:", e); }
+        }
+        // Also try Claude storage if available
+        try { await window.storage.set("azzuria-gamestate", json, true); } catch(e) {}
+        setSyncStatus("saved");
+        setTimeout(() => setSyncStatus("idle"), 2000);
+      } catch(e) {
+        setSyncStatus("error");
+      }
+    }, 800);
+  }, [turn, agitation, candidates, data, loaded]);
+
+  const syncDot = {
+    idle:   { color:"#5a4a30", label:"" },
+    saving: { color:"#c9a84c", label:"Saving..." },
+    saved:  { color:"#6db87a", label:"Saved" },
+    error:  { color:"#c4605a", label:"Save error" },
+  }[syncStatus];
+
+  const natUnrest = calcNatUnrest(agitation);
+
+  if (!loaded) return (
+    <div style={{...PAGE, display:"flex", alignItems:"center", justifyContent:"center"}}>
+      <div style={{fontSize:"10px", letterSpacing:"6px", color:"#5a4a30", textTransform:"uppercase"}}>Loading saved state...</div>
+    </div>
+  );
+
+  return (
+    <div style={PAGE}>
+      <SeasonHeader turn={turn} natUnrest={natUnrest} agitation={agitation} candidates={candidates}/>
+      {syncStatus !== "idle" && (
+        <div style={{position:"fixed",bottom:"14px",right:"16px",zIndex:999,display:"flex",alignItems:"center",gap:"6px",padding:"6px 12px",background:"rgba(20,16,10,0.92)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"20px",fontSize:"10px",color:syncDot.color,letterSpacing:"2px",textTransform:"uppercase",backdropFilter:"blur(6px)"}}>
+          <span style={{width:"6px",height:"6px",borderRadius:"50%",background:syncDot.color,display:"inline-block"}}/>
+          {syncDot.label}
+        </div>
+      )}
+      {binId && (
+        <div
+          onClick={() => { navigator.clipboard?.writeText(binId); alert("Bin ID copied: " + binId); }}
+          style={{position:"fixed",bottom:"14px",left:"16px",zIndex:999,cursor:"pointer",
+            padding:"6px 12px",background:"rgba(20,16,10,0.92)",border:"1px solid rgba(155,127,186,0.35)",
+            borderRadius:"20px",fontSize:"10px",color:"#9b7fba",letterSpacing:"2px",
+            textTransform:"uppercase",backdropFilter:"blur(6px)"}}>
+          📋 BIN ID (tap to copy)
+        </div>
+      )}
+      <TabBar active={tab} onChange={setTab}/>
+      {tab===0 && <RegionsTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest}/>}
+      {tab===1 && <CandidatesTab data={data} setData={setData} candidates={candidates} setCandidates={setCandidates} activeCand={activeCand} setActiveCand={setActiveCand} agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} pendingParties={pendingParties} setPendingParties={setPendingParties}/>}
+      {tab===2 && <GameStateTab agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} turn={turn} setTurn={setTurn} candidates={candidates} setCandidates={setCandidates} senateHolder={senateHolder}/>}
+      {tab===3 && <InfluenceTab data={data} setData={setData}/>}
+      {tab===4 && <LawRegistryTab candidates={candidates} government={government}/>}
+      {tab===5 && <ElectionTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} turn={turn} senateHolder={senateHolder} setSenateHolder={setSenateHolder}/>}
+      {tab===6 && <GovernmentTab candidates={candidates} government={government} setGovernment={setGovernment} setData={setData} turn={turn}/>}
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App/>);
+  </script>
+</body>
+</html>
