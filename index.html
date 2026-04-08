@@ -46,6 +46,7 @@
       password = localStorage.getItem('passwordForAdminTable')
     } else {
       password = prompt('enter a password')
+	  localStorage.setItem('passwordForAdminTable', password)
     }
     
     const bytes  = CryptoJS.AES.decrypt(codedKey, password);
