@@ -159,13 +159,13 @@ const COLLEGES = [
 
 const INITIAL_DATA = [
   // Val  Mon  Col  Roc  Pie  Ses  Cas  Var  Mom  Tor  Fon  Riv  Ver  Cas
-  [  4,   1,   7,   5,   3,   2,   4,   6,   4,   4,   2,   6,   3,   2 ], // Nobles
-  [  9,   3,   3,   4,   2,   4,   2,   2,   3,   2,   3,   5,   3,   1 ], // Bureaucrats
-  [  3,  10,   2,   3,   2,   8,   2,   2,   1,   2,   7,   2,   2,   1 ], // Merchants
-  [  7,   4,   1,   1,   2,   2,   1,   1,   1,   2,   3,   1,   3,   1 ], // Industrialists
-  [  1,   2,   7,   5,   4,   3,   5,   8,   6,   5,   2,   8,   4,  10 ], // Church
-  [  3,   7,   1,   2,   1,   2,   1,   1,   1,   1,   5,   2,   1,   1 ], // Intellectuals
-  [  1,   1,   7,   6,   9,   4,   8,   7,   9,   8,   3,   4,   4,  10 ], // Rural Workers
+  [  2,   1,   7,   5,   3,   2,   4,   6,   4,   4,   3,   6,   3,   2 ], // Nobles
+  [  9,   2,   3,   4,   2,   4,   2,   2,   3,   2,   3,   5,   3,   1 ], // Bureaucrats
+  [  2,   9,   2,   3,   2,   8,   2,   2,   1,   2,   5,   2,   2,   1 ], // Merchants
+  [  3,   1,   1,   1,   2,   2,   1,   1,   1,   2,   2,   1,   3,   1 ], // Industrialists
+  [  5,   4,   7,   5,   4,   3,   5,   8,   6,   5,   1,   8,   4,  10 ], // Church
+  [  3,   7,   1,   2,   1,   2,   1,   1,   1,   1,   8,   2,   1,   1 ], // Intellectuals
+  [  4,   4,   7,   6,   9,   4,   8,   7,   9,   8,   3,   4,   4,  10 ], // Rural Workers
   [  2,   2,   2,   4,   7,   5,   7,   3,   5,   6,   5,   2,  10,   4 ], // Factory Workers
 ];
 
@@ -225,9 +225,9 @@ const calcNatUnrest = (agitation) => {
 
 const unrestInfo = (u) => {
   if (u <= 1) return { label:"Calm",     color:"#6db87a", desc:"No effect" };
-  if (u <= 3) return { label:"Tense",    color:"#c9a84c", desc:"Campaign actions cost +1 action" };
+  if (u <= 3) return { label:"Tense",    color:"#c9a84c", desc:"Agitated classes resist malus laws at full strength" };
   if (u <= 6) return { label:"Volatile", color:"#c47a5a", desc:"-2 popularity for all candidates nationally" };
-  return             { label:"Crisis",   color:"#c4605a", desc:"Laws cause double agitation -- revolution risk" };
+  return             { label:"Crisis",   color:"#c4605a", desc:"Malus laws cause double agitation — revolution risk" };
 };
 
 const agitPhase = (s) => {
@@ -250,34 +250,66 @@ const popColor = (v) => {
 const POP_SCALE = 50;
 const popPct = (v) => v <= 0 ? 0 : Math.min(100, Math.round(v / POP_SCALE * 100));
 
-const calcPopularity = (cand, data, agitation, natUnrest) =>
+const calcPopularity = (cand, data, agitation, natUnrest, tariffs, currentTurn, allCandidates) =>
   REGIONS.map((_, rIdx) => {
     let score = 0;
-    const lit  = litLevel(data, rIdx).n;
+    // Literacy capped at 3 for mechanical effect; display system still shows 1-5
+    const lit  = Math.min(3, litLevel(data, rIdx).n);
     const base = cand.classBase || [];
-    cand.laws.forEach(law => law.effects.forEach(({classIdx, type}) => {
-      const inf  = data[classIdx][rIdx];
-      const agit = agitation[classIdx] >= 5;
-      const mult = base.includes(classIdx) ? 2 : 1;
-      // Direct effect
-      if (type === "bonus") score += inf * mult;
-      if (type === "malus") score -= (agit ? inf : Math.floor(inf / 2)) * mult;
-      // Antagonist ripple: bonus to A angers A's enemy (half penalty),
-      // malus to A pleases A's enemy (half bonus)
-      const ant = ANTAGONISTS[classIdx];
-      if (ant !== undefined) {
-        const antInf  = data[ant][rIdx];
-        const antMult = base.includes(ant) ? 2 : 1;
-        if (type === "bonus") score -= Math.floor(antInf / 2) * antMult;
-        if (type === "malus") score += Math.floor(antInf / 2) * antMult;
-      }
-    }));
-    (cand.actions || []).forEach(a => {
-      score += (a.bonuses[rIdx] || 0) * lit;
+
+    cand.laws.forEach(law => {
+      // Laws: full strength first 4 turns, then 10%/turn decay, hard expire at T+12
+      // This forces re-legislation and keeps the policy game active across a campaign
+      const age = currentTurn ? Math.max(0, currentTurn - (law.enactedTurn || 1)) : 0;
+      if (age >= 12) return; // expired — zero contribution
+      const decay = age <= 4 ? 1.0 : Math.max(0, 1 - (age - 4) * 0.10);
+
+      law.effects.forEach(({classIdx, type}) => {
+        const inf  = data[classIdx][rIdx];
+        const mult = base.includes(classIdx) ? 1.25 : 1;
+        if (type === "bonus") score += (inf / 2) * mult * decay;
+        if (type === "malus") score -= (inf / 4) * mult * decay;
+        const ant = ANTAGONISTS[classIdx];
+        if (ant !== undefined) {
+          const antInf  = data[ant][rIdx];
+          const antMult = base.includes(ant) ? 1.25 : 1;
+          if (type === "bonus") score -= (antInf / 4) * antMult * decay;
+          if (type === "malus") score += (antInf / 8) * antMult * decay;
+        }
+      });
     });
-    // Regional base: flat +3 bonus in home regions
+
+    // Campaign actions: slow decay (8%/turn, floor 20%) — regional outpost building
+    // Deliberately slower than laws: actions represent durable local presence
+    (cand.actions || []).filter(a => !a.negative).forEach(a => {
+      const age   = currentTurn ? Math.max(0, currentTurn - (a.addedTurn || 1)) : 0;
+      const decay = Math.max(0.20, 1 - age * 0.08);
+      score += (a.bonuses[rIdx] || 0) * lit * decay;
+    });
+
+    // Incoming negative actions from other parties targeting this candidate
+    if (allCandidates) {
+      allCandidates.filter(c => c.id !== cand.id).forEach(attacker => {
+        (attacker.actions || []).filter(a => a.negative && a.targetPartyId === cand.id).forEach(a => {
+          const age   = currentTurn ? Math.max(0, currentTurn - (a.addedTurn || 1)) : 0;
+          const decay = Math.max(0.20, 1 - age * 0.08);
+          score -= (a.bonuses[rIdx] || 0) * lit * decay;
+        });
+      });
+    }
+
+    // Home region: 25% multiplier on existing positive score
     const regionBase = cand.regionBase || [];
-    if (regionBase.includes(rIdx)) score += 3;
+    if (regionBase.includes(rIdx) && score > 0) score *= 1.25;
+
+    // Tariff: scaled by regional class influence
+    if (tariffs) {
+      if (base.includes(2)) score += tariffs * (data[2][rIdx] / 10);
+      if (base.includes(3)) score += tariffs * (data[3][rIdx] / 10);
+      if (base.includes(6)) score -= tariffs * (data[6][rIdx] / 10);
+      if (base.includes(7)) score -= tariffs * (data[7][rIdx] / 10);
+    }
+
     const ur = unrestInfo(natUnrest);
     if (ur.label === "Volatile" || ur.label === "Crisis") score -= 2;
     return Math.round(score);
@@ -339,6 +371,7 @@ const NAV_GROUPS = [
   { label:"Parties",    color:"#7a9cc4",  tabs:[{idx:1,label:"Parties"},{idx:2,label:"Candidates"}] },
   { label:"Electoral",  color:"#8fae7a",  tabs:[{idx:3,label:"Regions"},{idx:4,label:"Influence"},{idx:5,label:"Election"}] },
   { label:"Foreign",    color:"#9b7fba",  tabs:[{idx:8,label:"Nations"}] },
+  { label:"Military",   color:"#c47a5a",  tabs:[{idx:10,label:"Military"}] },
 ];
 
 function AppNav({active, onChange, turn, natUnrest, agitation, candidates, syncDot}) {
@@ -371,6 +404,7 @@ function AppNav({active, onChange, turn, natUnrest, agitation, candidates, syncD
     {idx:2, label:"Candidates",grpColor:"#7a9cc4"},
     {idx:4, label:"Influence", grpColor:"#8fae7a"},
     {idx:5, label:"Election",  grpColor:"#8fae7a"},
+    {idx:10,label:"Military",  grpColor:"#c47a5a"},
   ];
   const isSecondary = MOBILE_SECONDARY.some(t => t.idx === active);
   const [showMore, setShowMore] = useState(false);
@@ -560,14 +594,14 @@ function AppNav({active, onChange, turn, natUnrest, agitation, candidates, syncD
 
 // ── REGION CARD MODAL ─────────────────────────────────────────────────────────
 
-function RegionModal({rIdx, candidates, data, agitation, natUnrest, regionDescs, setRegionDescs, onClose}) {
+function RegionModal({rIdx, candidates, data, agitation, natUnrest, regionDescs, setRegionDescs, tariffs, turn, onClose}) {
   const region   = REGIONS[rIdx];
   const rd       = REGION_DATA[rIdx];
   const desc     = (regionDescs && regionDescs[rIdx] !== undefined) ? regionDescs[rIdx] : (rd?.desc || "");
   const lit      = litLevel(data, rIdx);
   const ur       = unrestInfo(natUnrest);
   const rows     = [...candidates]
-    .map(c => ({c, score: calcPopularity(c, data, agitation, natUnrest)[rIdx]}))
+    .map(c => ({c, score: calcPopularity(c, data, agitation, natUnrest, tariffs, turn, candidates)[rIdx]}))
     .sort((a,b) => b.score - a.score);
   const [editDesc, setEditDesc] = useState(false);
   const [draft,    setDraft]    = useState(desc);
@@ -675,13 +709,13 @@ function RegionModal({rIdx, candidates, data, agitation, natUnrest, regionDescs,
 
 // ── REGIONS TAB ───────────────────────────────────────────────────────────────
 
-function RegionsTab({candidates, data, agitation, natUnrest}) {
+function RegionsTab({candidates, data, agitation, natUnrest, regionDescs, setRegionDescs, tariffs, turn}) {
   const [selRegion, setSelRegion] = useState(null);
 
   return (
     <div style={{padding:"20px 14px",maxWidth:"1000px",margin:"0 auto"}}>
       {selRegion !== null && (
-        <RegionModal rIdx={selRegion} candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} regionDescs={regionDescs} setRegionDescs={setRegionDescs} onClose={() => setSelRegion(null)}/>
+        <RegionModal rIdx={selRegion} candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} regionDescs={regionDescs} setRegionDescs={setRegionDescs} tariffs={tariffs} turn={turn} onClose={() => setSelRegion(null)}/>
       )}
 
       <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"20px",
@@ -702,7 +736,7 @@ function RegionsTab({candidates, data, agitation, natUnrest}) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:"10px"}}>
         {REGIONS.map((r, rIdx) => {
           const lit    = litLevel(data, rIdx);
-          const allPops = candidates.map(c => ({c, score: calcPopularity(c, data, agitation, natUnrest)[rIdx]})).sort((a,b) => b.score-a.score);
+          const allPops = candidates.map(c => ({c, score: calcPopularity(c, data, agitation, natUnrest, tariffs, turn, candidates)[rIdx]})).sort((a,b) => b.score-a.score);
           const leader  = allPops[0];
           const ur      = unrestInfo(natUnrest);
 
@@ -773,7 +807,7 @@ function RegionsTab({candidates, data, agitation, natUnrest}) {
               </thead>
               <tbody>
                 {candidates.map(c => {
-                  const pops = calcPopularity(c, data, agitation, natUnrest);
+                  const pops = calcPopularity(c, data, agitation, natUnrest, tariffs, turn, candidates);
                   return (
                     <tr key={c.id}>
                       <td style={{padding:"3px 12px",fontSize:"11px",color:c.color,whiteSpace:"nowrap"}}>
@@ -810,7 +844,7 @@ function RegionsTab({candidates, data, agitation, natUnrest}) {
 
 // ── CANDIDATES TAB ────────────────────────────────────────────────────────────
 
-function CandidatesTab({data, setData, candidates, setCandidates, activeCand, setActiveCand, agitation, setAgitation, natUnrest, pendingParties, setPendingParties}) {
+function CandidatesTab({data, setData, candidates, setCandidates, activeCand, setActiveCand, agitation, setAgitation, natUnrest, tariffs, turn, pendingParties, setPendingParties}) {
   const [newCandName, setNewCandName] = useState("");
   const [newLawName,  setNewLawName]  = useState("");
   const [newLawDesc,  setNewLawDesc]  = useState("");
@@ -820,6 +854,9 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
   const [newActName,  setNewActName]  = useState("");
   const [newActType,  setNewActType]  = useState("Newspaper");
   const [newActBon,   setNewActBon]   = useState(REGIONS.map(() => 0));
+  const [newActNeg,   setNewActNeg]   = useState(false);          // negative action toggle
+  const [newActTarget,setNewActTarget]= useState(null);           // target party id
+  const [newActClass, setNewActClass] = useState(0);              // target class idx
   const [selRegion,   setSelRegion]   = useState(null);
 
   const addCand = () => {
@@ -840,12 +877,13 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
     const effects = newLawFx.map((e,i) => ({classIdx:i,type:e})).filter(e => e.type !== "neutral");
     if (!effects.length) return;
     setCandidates(p => p.map(c => c.id===activeCand
-      ? {...c, laws:[...c.laws,{id:Date.now(),name:newLawName.trim(),desc:newLawDesc.trim(),effects}]} : c));
-    // Apply agitation deltas immediately: bonus=-1, malus=+2, capped 0-6
+      ? {...c, laws:[...c.laws,{id:Date.now(),name:newLawName.trim(),desc:newLawDesc.trim(),effects,enactedTurn:turn}]} : c));
+    // Apply agitation deltas immediately: bonus=-1, malus=+2 (doubled at Crisis), capped 0-6
+    const isCrisis = calcNatUnrest(agitation) >= 7;
     setAgitation(prev => {
       const next = [...prev];
       effects.forEach(({classIdx, type}) => {
-        const delta = type==="bonus" ? -1 : +2;
+        const delta = type==="bonus" ? -1 : (isCrisis ? +4 : +2);
         next[classIdx] = Math.max(0, Math.min(6, next[classIdx] + delta));
       });
       return next;
@@ -865,19 +903,40 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
       return next;
     });
     setNewLawName(""); setNewLawDesc(""); setNewLawFx(CLASSES.map(()=>"neutral")); setShowLawForm(false);
+    // Spend 1 action — flat cost regardless of unrest
+    setCandidates(p => p.map(c => c.id===activeCand
+      ? {...c, actionsLeft: Math.max(0, (c.actionsLeft ?? BASE_ACTIONS) - 1)} : c));
   };
   const removeLaw    = lid => setCandidates(p => p.map(c => c.id===activeCand ? {...c, laws:c.laws.filter(l=>l.id!==lid)} : c));
   const addAction = () => {
     if (!newActName.trim() || newActBon.every(b=>b===0)) return;
+    if (newActNeg && !newActTarget) return; // negative action needs a target
+    const actionData = {
+      id: Date.now(),
+      name: newActName.trim(),
+      type: newActType,
+      bonuses: [...newActBon],
+      addedTurn: turn,
+      negative: newActNeg,
+      targetPartyId: newActNeg ? newActTarget : null,
+      targetClassIdx: newActNeg ? newActClass : null,
+    };
+    // Spend 1 action — flat cost
     setCandidates(p => p.map(c => c.id===activeCand
-      ? {...c, actions:[...(c.actions||[]),{id:Date.now(),name:newActName.trim(),type:newActType,bonuses:[...newActBon]}]} : c));
-    setNewActName(""); setNewActType("Newspaper"); setNewActBon(REGIONS.map(()=>0)); setShowActForm(false);
+      ? {...c,
+          actions:[...(c.actions||[]), actionData],
+          actionsLeft: Math.max(0, (c.actionsLeft ?? BASE_ACTIONS) - 1),
+        }
+      : c));
+    setNewActName(""); setNewActType("Newspaper"); setNewActBon(REGIONS.map(()=>0));
+    setNewActNeg(false); setNewActTarget(null); setNewActClass(0);
+    setShowActForm(false);
   };
   const removeAction = aid => setCandidates(p => p.map(c => c.id===activeCand
     ? {...c, actions:(c.actions||[]).filter(a=>a.id!==aid)} : c));
 
   const cand    = candidates.find(c => c.id === activeCand);
-  const myPop   = c => calcPopularity(c, data, agitation, natUnrest);
+  const myPop   = c => calcPopularity(c, data, agitation, natUnrest, tariffs, turn, candidates);
   const hasContent = c => c.laws.length > 0 || (c.actions||[]).length > 0;
 
   // Projected agitation after the current law form selections
@@ -947,7 +1006,7 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
   return (
     <div style={{padding:"24px 20px"}}>
       {selRegion !== null && (
-        <RegionModal rIdx={selRegion} candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} regionDescs={regionDescs} setRegionDescs={setRegionDescs} onClose={() => setSelRegion(null)}/>
+        <RegionModal rIdx={selRegion} candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} regionDescs={regionDescs} setRegionDescs={setRegionDescs} tariffs={tariffs} turn={turn} onClose={() => setSelRegion(null)}/>
       )}
 
       {/* ── pending parties ── */}
@@ -1013,25 +1072,11 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
                   </div>
                 </div>
                 <div style={{display:"flex",gap:"7px"}}>
-                  <button onClick={async () => {
-                    const c = {id:party.id, name:party.name, color:party.color, classBase:party.classBase||[], regionBase:party.regions||[], desc:party.desc||"", tags:party.tags||[], chars:party.chars||[], laws:[], actions:[], actionsLeft:3};
+                  <button onClick={() => {
+                    const c = {id:party.id, name:party.name, color:party.color, classBase:party.classBase||[], laws:[], actions:[], actionsLeft:3};
                     setCandidates(p => [...p, c]);
-                    const updated = pendingParties.filter(x => x.id !== party.id);
-                    setPendingParties(updated);
+                    setPendingParties(p => p.filter(x => x.id !== party.id));
                     setActiveCand(c.id);
-                    // Write removal to JSONbin immediately so it never reappears on poll
-                    try {
-                      const pr = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
-                        headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
-                      });
-                      const pd = await pr.json();
-                      const current = pd.record || {};
-                      await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID, {
-                        method:"PUT",
-                        headers:{"Content-Type":"application/json","X-Access-Key":JSONBIN_ACCESS_KEY},
-                        body: JSON.stringify({...current, pendingParties: updated}),
-                      });
-                    } catch(e) { console.error("Approve sync failed:", e); }
                   }} style={{padding:"6px 16px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",
                     background:"rgba(80,160,100,0.12)",border:"1px solid rgba(80,160,100,0.35)",borderRadius:"4px",color:"#6db87a"}}>
                     ✓ Approve
@@ -1193,7 +1238,7 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
                 </div>
 
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:"9px",color:DIM}}>Y = +pop, inf+1, agit−1 · N = −pop, inf−1, agit+2</span>
+                  <span style={{fontSize:"9px",color:DIM}}>Y = +pop, agit−1 · N = −pop, agit+2 · Laws expire after 12 turns — re-legislate to maintain effect</span>
                   <button onClick={addLaw} style={{padding:"6px 18px",background:"rgba(201,168,76,0.15)",border:"1px solid rgba(201,168,76,0.35)",borderRadius:"4px",color:GOLD,cursor:"pointer",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif"}}>Enact</button>
                 </div>
               </div>
@@ -1208,13 +1253,22 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
                   const agitSummary = lawAgitSummary(law);
                   const gains  = agitSummary.filter(x=>x.delta<0);
                   const losses = agitSummary.filter(x=>x.delta>0);
+                  const age      = Math.max(0, turn - (law.enactedTurn || 1));
+                  const expired  = age >= 12;
+                  const expireAt = (law.enactedTurn || 1) + 12;
+                  const turnsLeft = Math.max(0, expireAt - turn);
+                  const expColor = turnsLeft <= 2 ? "#c4605a" : turnsLeft <= 4 ? "#c9a84c" : "#6db87a";
                   return (
-                    <div key={law.id} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"5px",padding:"10px 12px"}}>
+                    <div key={law.id} style={{background:expired?"rgba(255,255,255,0.01)":"rgba(255,255,255,0.02)",border:`1px solid ${expired?"rgba(255,255,255,0.03)":"rgba(255,255,255,0.06)"}`,borderRadius:"5px",padding:"10px 12px",opacity:expired?0.45:1}}>
                       <div style={{display:"flex",alignItems:"flex-start",gap:"8px",marginBottom:"7px"}}>
                         <div style={{flex:1}}>
                           <div style={{fontSize:"12px",color:"#e8dcc8",marginBottom:law.desc?"2px":"0"}}>{law.name}</div>
                           {law.desc && <div style={{fontSize:"10px",color:SOFT,fontStyle:"italic"}}>{law.desc}</div>}
                         </div>
+                        {expired
+                          ? <span style={{fontSize:"8px",color:"#c4605a",border:"1px solid rgba(200,80,60,0.3)",borderRadius:"3px",padding:"1px 6px",flexShrink:0,letterSpacing:"1px"}}>EXPIRED</span>
+                          : <span style={{fontSize:"8px",color:expColor,border:`1px solid ${expColor}44`,borderRadius:"3px",padding:"1px 6px",flexShrink:0,letterSpacing:"1px"}}>T+{turnsLeft}</span>
+                        }
                         <button onClick={() => removeLaw(law.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"12px",padding:"1px 5px",flexShrink:0}}>×</button>
                       </div>
                       {/* popularity tags */}
@@ -1275,8 +1329,9 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
 
             {/* action form */}
             {showActForm && (
-              <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(100,160,200,0.18)",borderRadius:"6px",padding:"16px",marginBottom:"12px"}}>
-                <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
+              <div style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${newActNeg?"rgba(200,80,60,0.25)":"rgba(100,160,200,0.18)"}`,borderRadius:"6px",padding:"16px",marginBottom:"12px"}}>
+                {/* Name + type row */}
+                <div style={{display:"flex",gap:"8px",marginBottom:"10px",flexWrap:"wrap"}}>
                   <input value={newActName} onChange={e=>setNewActName(e.target.value)}
                     placeholder="Action name..." style={{...INPUT,flex:"2 1 120px",width:"auto"}}/>
                   <select value={newActType} onChange={e=>setNewActType(e.target.value)}
@@ -1284,26 +1339,78 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
                     {ACTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
-                <div style={{fontSize:"9px",letterSpacing:"2px",color:DIM,textTransform:"uppercase",marginBottom:"8px"}}>Bonus per region (0–3) × literacy multiplier</div>
+
+                {/* Negative toggle */}
+                <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px",padding:"8px 10px",
+                  background:newActNeg?"rgba(200,80,60,0.06)":"rgba(255,255,255,0.015)",
+                  border:`1px solid ${newActNeg?"rgba(200,80,60,0.2)":"rgba(255,255,255,0.06)"}`,borderRadius:"4px"}}>
+                  <button onClick={()=>setNewActNeg(f=>!f)} style={{
+                    padding:"4px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",
+                    textTransform:"uppercase",borderRadius:"3px",
+                    background:newActNeg?"rgba(200,80,60,0.2)":"rgba(255,255,255,0.04)",
+                    border:`1px solid ${newActNeg?"rgba(200,80,60,0.5)":"rgba(255,255,255,0.12)"}`,
+                    color:newActNeg?"#e08060":DIM}}>
+                    {newActNeg?"⚔ Negative Action":"○ Positive Action"}
+                  </button>
+                  <span style={{fontSize:"9px",color:DIM,flex:1}}>
+                    {newActNeg
+                      ? "Applies a malus to a rival party in selected regions"
+                      : "Adds popularity bonus for this party in selected regions"}
+                  </span>
+                </div>
+
+                {/* Negative action: target party + class */}
+                {newActNeg && (
+                  <div style={{display:"flex",gap:"8px",marginBottom:"10px",flexWrap:"wrap",padding:"8px 10px",
+                    background:"rgba(200,80,60,0.04)",border:"1px solid rgba(200,80,60,0.12)",borderRadius:"4px"}}>
+                    <div style={{flex:1,minWidth:"140px"}}>
+                      <div style={{fontSize:"8px",color:"#c4605a",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Target Party</div>
+                      <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+                        {candidates.filter(c=>c.id!==activeCand).map(c=>(
+                          <button key={c.id} onClick={()=>setNewActTarget(c.id)}
+                            style={{padding:"4px 10px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",
+                              background:newActTarget===c.id?c.color+"22":"rgba(255,255,255,0.02)",
+                              border:`1px solid ${newActTarget===c.id?c.color:"rgba(255,255,255,0.1)"}`,
+                              borderRadius:"3px",color:newActTarget===c.id?c.color:SOFT}}>
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{flex:1,minWidth:"140px"}}>
+                      <div style={{fontSize:"8px",color:"#c4605a",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Class to Attack</div>
+                      <select value={newActClass} onChange={e=>setNewActClass(Number(e.target.value))}
+                        style={{width:"100%",padding:"5px 8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:"#e8dcc8",fontFamily:"Georgia,serif",fontSize:"11px"}}>
+                        {CLASSES.map((cls,i)=><option key={i} value={i}>{cls}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{fontSize:"9px",letterSpacing:"2px",color:DIM,textTransform:"uppercase",marginBottom:"8px"}}>
+                  {newActNeg ? "Malus strength per region × literacy" : "Bonus per region (0–3) × literacy multiplier"}
+                </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:"4px",marginBottom:"12px"}}>
                   {REGIONS.map((r,i) => {
                     const lit = litLevel(data,i);
                     const base = newActBon[i];
                     return (
-                      <div key={r} style={{display:"flex",alignItems:"center",gap:"6px",background:"rgba(255,255,255,0.015)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:"4px",padding:"5px 8px"}}>
+                      <div key={r} style={{display:"flex",alignItems:"center",gap:"6px",
+                        background:newActNeg?"rgba(200,60,60,0.04)":"rgba(255,255,255,0.015)",
+                        border:"1px solid rgba(255,255,255,0.05)",borderRadius:"4px",padding:"5px 8px"}}>
                         <div style={{flex:1}}>
                           <div style={{fontSize:"10px",color:"#b0a080"}}>{r}</div>
-                          {base > 0 && <div style={{fontSize:"8px",color:"#7ab0d0"}}>→ +{base*lit.n}</div>}
+                          {base > 0 && <div style={{fontSize:"8px",color:newActNeg?"#e08060":"#7ab0d0"}}>{newActNeg?"−":"+"}{ base*lit.n}</div>}
                         </div>
                         <div style={{display:"flex",gap:"2px"}}>
                           {[0,1,2,3].map(v => {
                             const isA = newActBon[i]===v;
                             return (
-                              <button key={v} onClick={() => setNewActBon(p=>{const n=[...p];n[i]=v;return n;})} style={{
+                              <button key={v} onClick={()=>setNewActBon(p=>{const n=[...p];n[i]=v;return n;})} style={{
                                 width:"20px",height:"20px",cursor:"pointer",fontSize:"10px",fontFamily:"Georgia,serif",padding:0,borderRadius:"3px",
-                                background:isA?(v===0?"rgba(255,255,255,0.04)":"rgba(100,200,120,0.2)"):"transparent",
-                                border:`1px solid ${isA?(v===0?"rgba(255,255,255,0.12)":"rgba(100,200,120,0.45)"):"rgba(255,255,255,0.06)"}`,
-                                color:isA?(v===0?DIM:"#80c890"):SOFT,
+                                background:isA?(v===0?"rgba(255,255,255,0.04)":newActNeg?"rgba(200,80,60,0.2)":"rgba(100,200,120,0.2)"):"transparent",
+                                border:`1px solid ${isA?(v===0?"rgba(255,255,255,0.12)":newActNeg?"rgba(200,80,60,0.45)":"rgba(100,200,120,0.45)"):"rgba(255,255,255,0.06)"}`,
+                                color:isA?(v===0?DIM:newActNeg?"#e08060":"#80c890"):SOFT,
                               }}>{v}</button>
                             );
                           })}
@@ -1312,8 +1419,16 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
                     );
                   })}
                 </div>
-                <div style={{display:"flex",justifyContent:"flex-end"}}>
-                  <button onClick={addAction} style={{padding:"6px 18px",background:"rgba(100,160,200,0.12)",border:"1px solid rgba(100,160,200,0.35)",borderRadius:"4px",color:"#7ab0d0",cursor:"pointer",fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif"}}>Add</button>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:"9px",color:DIM}}>Costs 1 action</span>
+                  <button onClick={addAction}
+                    disabled={newActNeg && !newActTarget}
+                    style={{padding:"6px 18px",
+                      background:newActNeg?"rgba(200,80,60,0.15)":"rgba(100,160,200,0.12)",
+                      border:`1px solid ${newActNeg?"rgba(200,80,60,0.4)":"rgba(100,160,200,0.35)"}`,
+                      borderRadius:"4px",color:newActNeg?"#e08060":"#7ab0d0",cursor:"pointer",
+                      fontSize:"10px",letterSpacing:"2px",textTransform:"uppercase",fontFamily:"Georgia,serif",
+                      opacity:(newActNeg&&!newActTarget)?0.4:1}}>Add</button>
                 </div>
               </div>
             )}
@@ -1322,18 +1437,34 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
               <div style={{textAlign:"center",padding:"14px",color:DIM,fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.05)",borderRadius:"5px"}}>No campaign actions</div>
             ) : (
               <div style={{display:"flex",flexDirection:"column",gap:"5px"}}>
-                {(cand.actions||[]).map(action => (
-                  <div key={action.id} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(100,160,200,0.1)",borderRadius:"5px",padding:"9px 12px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
-                    <span style={{fontSize:"8px",color:"#7ab0d0",letterSpacing:"1px",textTransform:"uppercase",border:"1px solid rgba(100,160,200,0.2)",borderRadius:"3px",padding:"1px 5px",flexShrink:0}}>{action.type}</span>
-                    <span style={{fontSize:"12px",color:"#e8dcc8",flex:1,minWidth:"70px"}}>{action.name}</span>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px"}}>
-                      {action.bonuses.map((b,i) => b > 0 ? (
-                        <span key={i} style={{fontSize:"8px",padding:"1px 5px",borderRadius:"3px",background:"rgba(100,200,120,0.1)",border:"1px solid rgba(100,200,120,0.25)",color:"#80c890"}}>+{b*litLevel(data,i).n} {REGIONS[i]}</span>
-                      ) : null)}
+                {(cand.actions||[]).map(action => {
+                  const isNeg = action.negative;
+                  const tgt   = isNeg ? candidates.find(c=>c.id===action.targetPartyId) : null;
+                  const acol  = isNeg ? "#e08060" : "#7ab0d0";
+                  const abdr  = isNeg ? "rgba(200,80,60,0.2)" : "rgba(100,160,200,0.2)";
+                  return (
+                    <div key={action.id} style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${isNeg?"rgba(200,80,60,0.15)":"rgba(100,160,200,0.1)"}`,borderRadius:"5px",padding:"9px 12px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"8px",color:acol,letterSpacing:"1px",textTransform:"uppercase",border:`1px solid ${abdr}`,borderRadius:"3px",padding:"1px 5px",flexShrink:0}}>{isNeg?"⚔":""}{action.type}</span>
+                      <span style={{fontSize:"12px",color:"#e8dcc8",flex:1,minWidth:"70px"}}>{action.name}</span>
+                      {isNeg && tgt && (
+                        <span style={{fontSize:"8px",color:tgt.color,border:`1px solid ${tgt.color}44`,borderRadius:"3px",padding:"1px 6px",flexShrink:0}}>
+                          → {tgt.name} · {CLASSES[action.targetClassIdx]}
+                        </span>
+                      )}
+                      <div style={{display:"flex",flexWrap:"wrap",gap:"3px"}}>
+                        {action.bonuses.map((b,i) => b > 0 ? (
+                          <span key={i} style={{fontSize:"8px",padding:"1px 5px",borderRadius:"3px",
+                            background:isNeg?"rgba(200,80,60,0.1)":"rgba(100,200,120,0.1)",
+                            border:`1px solid ${isNeg?"rgba(200,80,60,0.25)":"rgba(100,200,120,0.25)"}`,
+                            color:isNeg?"#e08060":"#80c890"}}>
+                            {isNeg?"−":"+"}{b*litLevel(data,i).n} {REGIONS[i]}
+                          </span>
+                        ) : null)}
+                      </div>
+                      <button onClick={() => removeAction(action.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"12px",padding:"1px 5px"}}>×</button>
                     </div>
-                    <button onClick={() => removeAction(action.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"12px",padding:"1px 5px"}}>×</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1425,7 +1556,7 @@ function CandidatesTab({data, setData, candidates, setCandidates, activeCand, se
 
 // ── GAME STATE TAB ────────────────────────────────────────────────────────────
 
-function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candidates, setCandidates, senateHolder, nations, setNations, government, wars, setWars, deals, setDeals, gmEvents, setGmEvents, randomEventDeck, turnLog, setTurnLog}) {
+function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candidates, setCandidates, senateHolder, nations, setNations, government, setGovernment, setData, wars, setWars, deals, setDeals, gmEvents, setGmEvents, randomEventDeck, turnLog, setTurnLog, coalitions, revolts, setRevolts, setAzzuriaArmy, setParamilitaries}) {
   const [confirmEnd, setConfirmEnd] = useState(false);
 
   const adjAgit = (i,d) => setAgitation(p => { const n=[...p]; n[i]=Math.max(0,Math.min(6,n[i]+d)); return n; });
@@ -1446,31 +1577,33 @@ function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candid
   }
 
   const endTurn = () => {
-    setAgitation(p => p.map(a => Math.max(0, a - (a <= 2 ? 0 : 0))));
+    // No natural agitation decay — agitation only reduces via minister actions and decrees
+    const inCoalition = new Set((coalitions||[]).flatMap(coal => coal.memberIds||[]));
     setCandidates(p => p.map(c => ({
       ...c,
-      actionsLeft: BASE_ACTIONS + (senateHolder === c.id ? 1 : 0) + (government.pm === c.id ? 1 : 0)
+      actionsLeft: BASE_ACTIONS
+        + (senateHolder === c.id ? 1 : 0)
+        + (government.pm === c.id ? 1 : 0)
+        + (inCoalition.has(c.id) ? 1 : 0)
     })));
 
-    // ── Resolve pending investments (Public Works + Education) ──────
-    const duePending = (government.pendingInvestments||[]).filter(inv => inv.dueOnTurn <= turn+1);
-    if (duePending.length) {
-      duePending.forEach(inv => {
-        if (inv.type === "literacy") {
-          setData(prev => {
-            const next = prev.map(r=>[...r]);
-            next[5][inv.regionIdx] = Math.min(10, next[5][inv.regionIdx]+1);
-            return next;
-          });
-
-        }
-      });
-      setGovernment(g => ({...g,
-        pendingInvestments: (g.pendingInvestments||[]).filter(inv => inv.dueOnTurn > turn+1)
-      }));
-    }
-
     setTurn(t => t+1);
+
+    // ── Military end-of-turn ─────────────────────────────────────────────
+    // Unsuppressed revolts raise their class agitation by 1
+    if (revolts && revolts.some(r=>!r.suppressed)) {
+      setAgitation(prev => {
+        const next = [...prev];
+        revolts.filter(r=>!r.suppressed).forEach(r => {
+          next[r.classIdx] = Math.min(6, next[r.classIdx]+1);
+        });
+        return next;
+      });
+    }
+    // Army morale recovers +1 per turn (cap 5)
+    setAzzuriaArmy(a => ({...a, morale: Math.min(5, (a.morale||3)+1)}));
+    // Paramilitary/police strength recovers +1 per turn (cap 5)
+    setParamilitaries(p => p.map(pm => ({...pm, strength: Math.min(5, (pm.strength||1)+1)})));
     setConfirmEnd(false);
 
     if (nations && nations.length > 0) {
@@ -1617,16 +1750,16 @@ function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candid
       const REGIME_MORALE = {"Military":0.4,"Empire":0.2,"Theocracy":0.3,"Revolutionary":0.2,
         "Republic":0.1,"Constitutional Monarchy":0.1,"Absolute Monarchy":0.1,"Oligarchy":0,"Occupied":-0.2};
       const getNation = (id) => id === "azzuria" ? null : (nations||[]).find(n => n.id === id);
-      const getAvail = (id, nationsSnap) => {
+      const getAvail = (id) => {
           if (id === "azzuria") {
-            const az = government.azzuriaStats;
-            if (az) {
-              const pop  = (az.regions||[]).reduce((s,r) => s+(r.pop||1), 0);
-              const eco  = Math.max(0, pop*(az.productivity||2) - (az.milInvest||0)*0.5 - (az.unrest||0)*1.5);
-              const mil  = eco/2 + (az.milInvest||0);
-              return Math.max(0, mil - Math.floor((az.unrest||0)/2));
-            }
-            return 5;
+            const az = government?.azzuria || {};
+            const pop  = (az.regions||[]).reduce((s,r)=>s+(r.pop||1),0) || 3;
+            const prod = az.productivity || 2;
+            const mi   = az.milInvest ?? (government?.azzuriaMilInvest || 0);
+            const unr  = az.unrest || calcNatUnrest(agitation);
+            const eco  = Math.max(0, pop*prod - mi*0.5 - unr*1.5);
+            const milStr = eco/2 + mi;
+            return Math.max(1, Math.round((milStr - Math.floor(unr/2))*10)/10);
           }
           const n = getNation(id);
           if (!n) return 1;
@@ -1636,8 +1769,8 @@ function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candid
       setWars(prevWars => {
         let updatedNations = [...(nations||[])];
         const newWars = prevWars.map(w => {
-          const attAv  = getAvail(w.attId, updatedNations);
-          const defAv  = getAvail(w.defId, updatedNations);
+          const attAv  = getAvail(w.attId);
+          const defAv  = getAvail(w.defId);
           const attN   = getNation(w.attId);
           const defN   = getNation(w.defId);
           const attMor = REGIME_MORALE[attN?.regime] ?? 0;
@@ -1681,22 +1814,19 @@ function GameStateTab({agitation, setAgitation, natUnrest, turn, setTurn, candid
     }
 
     // ── ALLY RIPPLE (background standing drift) ───────────────────
-    // If Azzuria has standing ≤ -2 with nation A, and nation B is allied with A
-    // (B.standingVs[A] ≥ 2), Azzuria drifts -1 with B (15% chance per pair)
+    // If Azzuria has standing ≤ -2 with nation A, and nation B is also
+    // hostile to Azzuria (≤ -1), the two hostile nations reinforce each other:
+    // each has a 15% chance of drifting another -1 toward Azzuria this turn.
     if (nations && nations.length > 0) {
       const enemies = nations.filter(n => (n.diplo?.azzuria??0) <= -2);
       if (enemies.length > 0) {
         setNations(prev => prev.map(n => {
-          // Check: is this nation friendly with any of Azzuria's enemies?
-          const isAllyOfEnemy = enemies.some(e => {
-            const sv = (n.standingVs || {})[e.id] ?? 0;
-            return sv >= 2;
-          });
-          if (!isAllyOfEnemy) return n;
-          if (Math.random() > 0.15) return n;  // 15% chance
-          const cur = n.diplo?.azzuria ?? 0;
-          if (cur <= -3) return n;
-          return {...n, diplo:{...(n.diplo||{}), azzuria: cur - 1}};
+          const az = n.diplo?.azzuria ?? 0;
+          // Only cold/hostile nations drift further if there are active enemies
+          if (az > -1) return n;
+          if (Math.random() > 0.15) return n;
+          if (az <= -3) return n;
+          return {...n, diplo:{...(n.diplo||{}), azzuria: az - 1}};
         }));
       }
     }
@@ -1887,7 +2017,6 @@ function InfluenceTab({data, setData}) {
     n[row][col] = v;
     return n;
   });
-  const tc = t => { const d=Math.abs(t-TARGET); return d===0?"#6db87a":d<=5?GOLD:"#c4605a"; };
   const isDom = (row,col) => { const t=total(col); return data[row][col]===Math.max(...data.map(r=>r[col])); };
   const resetToDefault = () => setData(INITIAL_DATA.map(r=>[...r]));
 
@@ -2132,22 +2261,22 @@ const MINISTRIES = [
   { id:"pm",       title:"Prime Minister",      desc:"+1 action/season.",
     actions:[
       { id:"pm_unity",     label:"Call for Unity",       desc:"Lower the most agitated class by 1.", type:"auto" },
-      { id:"pm_stability", label:"Royal Proclamation",   desc:"+1 Nobles influence in a chosen region.", type:"pickRegion" },
+      { id:"pm_stability", label:"Royal Proclamation",   desc:"Lower all class agitation by 1.", type:"auto" },
       { id:"pm_peace",     label:"Offer Peace Treaty",   desc:"Resolve an active war based on current score.", type:"pickWar" },
     ]
   },
   { id:"interior", title:"Interior Minister",   desc:"Internal order and administration.",
     actions:[
       { id:"int_suppress", label:"Suppress Unrest",      desc:"Lower one class's agitation by 1.", type:"pickClass" },
-      { id:"int_expand",   label:"Expand Administration",desc:"+1 Bureaucrats influence in a chosen region.", type:"pickRegion" },
+      { id:"int_expand",   label:"Impose Order",         desc:"Lower one class's agitation by 2.", type:"pickClass" },
     ]
   },
   { id:"trade",    title:"Minister of Trade",   desc:"Commerce and tariff policy.",
     actions:[
       { id:"trd_deal",     label:"Negotiate Trade Deal", desc:"Open a trade deal with a nation (requires standing ≥ 0).", type:"pickNation" },
       { id:"trd_cancel",   label:"Cancel Trade Deal",    desc:"End an active trade deal.", type:"pickDeal" },
-      { id:"trd_tariff_up",label:"Raise Tariffs",        desc:"+1 tariff level: more income but agitates Merchants, Bureaucrats, Industrialists, Rural Workers and Factory Workers.", type:"auto" },
-      { id:"trd_tariff_dn",label:"Lower Tariffs",        desc:"−1 tariff level: less income but calms the same classes and improves standing with trade partners.", type:"auto" },
+      { id:"trd_tariff_up",label:"Raise Tariffs",        desc:"+1 tariff level: agitates Merchants, Bureaucrats, Industrialists, Rural Workers and Factory Workers.", type:"auto" },
+      { id:"trd_tariff_dn",label:"Lower Tariffs",        desc:"−1 tariff level: calms the same classes and improves standing with trade partners.", type:"auto" },
     ]
   },
   { id:"war",      title:"War Minister",        desc:"Commands the armed forces.",
@@ -2158,7 +2287,7 @@ const MINISTRIES = [
   },
   { id:"works",    title:"Public Works",        desc:"Infrastructure and development.",
     actions:[
-      { id:"wrk_invest",   label:"Invest in Region",     desc:"Queue: next turn +1 population in the chosen region (matches a nation region by name).", type:"pickRegion" },
+      { id:"wrk_invest",   label:"Invest in Region",     desc:"+1 population in a chosen nation region.", type:"pickNation" },
     ]
   },
   { id:"foreign",  title:"Foreign Affairs",     desc:"Diplomatic relations.",
@@ -2170,19 +2299,19 @@ const MINISTRIES = [
   { id:"church",   title:"Minister of Religion",desc:"Church relations and public morale.",
     actions:[
       { id:"chu_soothe",   label:"Pastoral Address",     desc:"Lower any one class's agitation by 1.", type:"pickClass" },
-      { id:"chu_feast",    label:"Religious Festival",   desc:"+1 Church influence in a chosen region.", type:"pickRegion" },
+      { id:"chu_feast",    label:"Religious Festival",   desc:"Lower Church and Rural Workers agitation by 1 each.", type:"auto" },
     ]
   },
   { id:"justice",  title:"Justice Minister",    desc:"Courts and the rule of law.",
     actions:[
-      { id:"jus_reform",   label:"Reform Commission",    desc:"+1 Intellectuals influence in a chosen region.", type:"pickRegion" },
+      { id:"jus_reform",   label:"Legal Review",         desc:"Lower any one class's agitation by 1.", type:"pickClass" },
       { id:"jus_enforce",  label:"Enforce the Law",      desc:"Lower Rural Workers and Factory Workers agitation by 1 each.", type:"auto" },
     ]
   },
   { id:"education",title:"Education Minister",  desc:"Schools, universities and literacy.",
     actions:[
-      { id:"edu_school",    label:"Fund Schools",        desc:"Queue: next turn +1 Intellectuals influence in the chosen region.", type:"pickRegion" },
-      { id:"edu_vocational",label:"Vocational Training", desc:"+1 Factory Workers influence in a chosen region.", type:"pickRegion" },
+      { id:"edu_school",    label:"Literacy Campaign",   desc:"Lower any one class's agitation by 1.", type:"pickClass" },
+      { id:"edu_vocational",label:"Skills Programme",    desc:"Lower Factory Workers agitation by 1.", type:"auto" },
     ]
   },
 ];
@@ -2249,13 +2378,8 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
         break;
       }
       case "pm_stability": {
-        if (extra?.regionIdx == null) { setActivePicker({ministryId, action}); return; }
-        setData(prev => {
-          const next=prev.map(r=>[...r]);
-          next[0][extra.regionIdx] = Math.min(10, next[0][extra.regionIdx]+1);
-          next[5][extra.regionIdx] = Math.max(1,  next[5][extra.regionIdx]-1); // antagonist ripple
-          return next;
-        });
+        // Royal Proclamation: calm all classes by 1 (governance, not campaigning)
+        setAgitation(p => p.map(a => Math.max(0, a - 1)));
         break;
       }
       case "pm_peace": {
@@ -2299,13 +2423,8 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
         break;
       }
       case "int_expand": {
-        if (extra?.regionIdx == null) { setActivePicker({ministryId, action}); return; }
-        setData(prev => {
-          const next=prev.map(r=>[...r]);
-          next[1][extra.regionIdx] = Math.min(10, next[1][extra.regionIdx]+1);
-          next[2][extra.regionIdx] = Math.max(1,  next[2][extra.regionIdx]-1); // antagonist ripple
-          return next;
-        });
+        if (extra?.classIdx == null) { setActivePicker({ministryId, action}); return; }
+        setAgitation(p => { const n=[...p]; n[extra.classIdx]=Math.max(0,n[extra.classIdx]-2); return n; });
         break;
       }
 
@@ -2412,25 +2531,14 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
         break;
       }
       case "chu_feast": {
-        if (extra?.regionIdx == null) { setActivePicker({ministryId, action}); return; }
-        setData(prev => {
-          const next=prev.map(r=>[...r]);
-          next[4][extra.regionIdx] = Math.min(10, next[4][extra.regionIdx]+1);
-          next[6][extra.regionIdx] = Math.max(1,  next[6][extra.regionIdx]-1); // antagonist ripple
-          return next;
-        });
+        setAgitation(p => { const n=[...p]; n[4]=Math.max(0,n[4]-1); n[6]=Math.max(0,n[6]-1); return n; });
         break;
       }
 
       // ── JUSTICE ──────────────────────────────────────────────────
       case "jus_reform": {
-        if (extra?.regionIdx == null) { setActivePicker({ministryId, action}); return; }
-        setData(prev => {
-          const next=prev.map(r=>[...r]);
-          next[5][extra.regionIdx] = Math.min(10, next[5][extra.regionIdx]+1);
-          next[0][extra.regionIdx] = Math.max(1,  next[0][extra.regionIdx]-1); // antagonist ripple
-          return next;
-        });
+        if (extra?.classIdx == null) { setActivePicker({ministryId, action}); return; }
+        setAgitation(p => { const n=[...p]; n[extra.classIdx]=Math.max(0,n[extra.classIdx]-1); return n; });
         break;
       }
       case "jus_enforce": {
@@ -2440,24 +2548,12 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
 
       // ── EDUCATION ────────────────────────────────────────────────
       case "edu_school": {
-        if (extra?.regionIdx == null) { setActivePicker({ministryId, action}); return; }
-        // Queue: resolve next turn as +1 Intellectuals influence
-        setGovernment(g => ({...g,
-          pendingInvestments: [...(g.pendingInvestments||[]),
-            {id:Date.now(), type:"literacy", regionIdx:extra.regionIdx, dueOnTurn:turn+1,
-             label:`+1 literacy · ${REGIONS[extra.regionIdx]}`}
-          ]
-        }));
+        if (extra?.classIdx == null) { setActivePicker({ministryId, action}); return; }
+        setAgitation(p => { const n=[...p]; n[extra.classIdx]=Math.max(0,n[extra.classIdx]-1); return n; });
         break;
       }
       case "edu_vocational": {
-        if (extra?.regionIdx == null) { setActivePicker({ministryId, action}); return; }
-        setData(prev => {
-          const next=prev.map(r=>[...r]);
-          next[7][extra.regionIdx] = Math.min(10, next[7][extra.regionIdx]+1);
-          next[3][extra.regionIdx] = Math.max(1,  next[3][extra.regionIdx]-1); // antagonist ripple
-          return next;
-        });
+        setAgitation(p => { const n=[...p]; n[7]=Math.max(0,n[7]-1); return n; });
         break;
       }
 
@@ -2562,171 +2658,116 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
         <div style={{width:"60px",height:"1px",background:"linear-gradient(to right,transparent,"+GOLD+",transparent)",margin:"12px auto 0"}}/>
       </div>
 
-      {/* ── Azzuria stats ── */}
+      {/* ── Azzuria nation editor ── */}
       {(() => {
-        const az = government.azzuriaStats || {
-          regions: REGIONS.map((r, i) => ({id: i, name: r, pop: 3})),
-          productivity: 2, milInvest: government.azzuriaMilInvest || 0,
-          unrest: 0, tariffs: government.tariffs || 0,
+        const az = government.azzuria || {
+          regions: [], productivity: 2, milInvest: government.azzuriaMilInvest || 0,
+          unrest: 0, desc: ""
         };
-        const upd = patch => setGovernment(g => ({...g,
-          azzuriaStats: {...(g.azzuriaStats || az), ...patch},
-          // keep legacy fields in sync for AI/battle code that still reads them
-          ...(patch.milInvest !== undefined ? {azzuriaMilInvest: patch.milInvest} : {}),
-          ...(patch.tariffs   !== undefined ? {tariffs:          patch.tariffs}   : {}),
-        }));
-        const adjStat = (key, d, lo=0, hi=20) =>
-          upd({[key]: Math.max(lo, Math.min(hi, (az[key]||0) + d))});
-        const pop     = (az.regions||[]).reduce((s,r) => s+(r.pop||1), 0);
-        const eco     = Math.max(0, pop*(az.productivity||2) - (az.milInvest||0)*0.5 - (az.unrest||0)*1.5);
-        const milStr  = Math.round((eco/2 + (az.milInvest||0))*10)/10;
-        const avail   = Math.max(0, Math.round((milStr - Math.floor((az.unrest||0)/2))*10)/10);
-
-        const adjRegPop = (id, d) => upd({regions: (az.regions||[]).map(r =>
-          r.id===id ? {...r, pop: Math.max(1, Math.min(10, (r.pop||1)+d))} : r
-        )});
-
-        const [azTab, setAzTab] = useState("stats");
-        const [newRegName, setNewRegName] = useState("");
-        const [newRegPop,  setNewRegPop]  = useState(2);
-        const addRegion = () => {
-          if (!newRegName.trim()) return;
-          upd({regions: [...(az.regions||[]), {id: Date.now(), name: newRegName.trim(), pop: newRegPop}]});
-          setNewRegName(""); setNewRegPop(2);
+        const updAz = patch => setGovernment(g => ({...g, azzuria: {...(g.azzuria||{}), ...patch}}));
+        const adjAzStat = (key, d, lo, hi) =>
+          updAz({[key]: Math.max(lo, Math.min(hi, (az[key]||0)+d))});
+        const azPop  = (az.regions||[]).reduce((s,r)=>s+(r.pop||1),0);
+        const azProd = az.productivity || 2;
+        const azMil  = az.milInvest ?? (government.azzuriaMilInvest||0);
+        const azUnr  = az.unrest || 0;
+        const azEco  = Math.max(0, azPop*azProd - azMil*0.5 - azUnr*1.5);
+        const azMilStr = Math.round((azEco/2 + azMil)*10)/10;
+        const azAvail  = Math.max(0, Math.round((azMilStr - Math.floor(azUnr/2))*10)/10);
+        const [azTab, setAzTab] = React.useState("stats");
+        const [newRegN, setNewRegN] = React.useState("");
+        const [newRegP, setNewRegP] = React.useState(2);
+        const addAzRegion = () => {
+          if (!newRegN.trim()) return;
+          updAz({regions:[...(az.regions||[]),{id:Date.now(),name:newRegN.trim(),pop:newRegP}]});
+          setNewRegN(""); setNewRegP(2);
         };
-
-        const pending = government.pendingInvestments || [];
-
+        const adjAzRegPop = (id,d) => updAz({regions:(az.regions||[]).map(r=>r.id===id?{...r,pop:Math.max(1,Math.min(10,(r.pop||1)+d))}:r)});
+        const removeAzRegion = id => updAz({regions:(az.regions||[]).filter(r=>r.id!==id)});
         return (
-          <div style={{marginBottom:"24px",background:"rgba(201,168,76,0.04)",
-            border:"1px solid rgba(201,168,76,0.2)",borderTop:"3px solid rgba(201,168,76,0.6)",
-            borderRadius:"5px",overflow:"hidden"}}>
-
-            {/* Header */}
-            <div style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.06)",
-              display:"flex",alignItems:"center",gap:"10px"}}>
-              <span style={{fontSize:"10px",letterSpacing:"4px",color:GOLD,textTransform:"uppercase",flex:1}}>
-                👑 Kingdom of Azzuria
-              </span>
-              <span style={{fontSize:"8px",color:DIM,letterSpacing:"1px"}}>Sovereign nation stats</span>
+          <div style={{marginBottom:"24px",background:`rgba(201,168,76,0.04)`,border:"1px solid rgba(201,168,76,0.2)",borderTop:"3px solid rgba(201,168,76,0.6)",borderRadius:"5px",overflow:"hidden"}}>
+            <div style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",gap:"10px"}}>
+              <span style={{fontSize:"9px",letterSpacing:"4px",color:GOLD,textTransform:"uppercase",flex:1}}>Kingdom of Azzuria</span>
+              {(wars||[]).some(w=>w.attId==="azzuria"||w.defId==="azzuria") && <span style={{fontSize:"9px",color:"#c4605a",border:"1px solid rgba(196,96,90,0.35)",borderRadius:"3px",padding:"2px 7px"}}>⚔ At War</span>}
             </div>
-
+            {/* Derived stats */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(70px,1fr))",gap:"6px",padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+              {[["Population",azPop,"#e8dcc8"],["Economy",Math.round(azEco*10)/10,azEco>0?"#c9a84c":"#c4605a"],["Mil Str",azMilStr,"#c47a5a"],["Avail",azAvail,"#4a90c0"]].map(([l,v,c])=>(
+                <div key={l} style={{textAlign:"center",padding:"6px",background:"rgba(0,0,0,0.2)",borderRadius:"3px"}}>
+                  <div style={{fontSize:"7px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"3px"}}>{l}</div>
+                  <div style={{fontSize:"16px",color:c,fontFamily:"Georgia,serif"}}>{v}</div>
+                </div>
+              ))}
+            </div>
             {/* Sub-tabs */}
             <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-              {[["stats","Stats"],["regions","Regions"]].map(([k,l]) => (
+              {[["stats","Stats"],["regions","Regions"]].map(([k,l])=>(
                 <button key={k} onClick={()=>setAzTab(k)}
                   style={{flex:1,padding:"7px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",
                     letterSpacing:"2px",textTransform:"uppercase",background:"none",border:"none",
-                    borderBottom:`2px solid ${azTab===k?"rgba(201,168,76,0.7)":"transparent"}`,
-                    color:azTab===k?"#e8dcc8":DIM}}>
+                    borderBottom:`2px solid ${azTab===k?GOLD:"transparent"}`,color:azTab===k?"#e8dcc8":DIM}}>
                   {l}
                 </button>
               ))}
             </div>
-
-            {/* Stats tab */}
             {azTab==="stats" && (
-              <div style={{padding:"14px 16px"}}>
-                {/* Derived stats */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(70px,1fr))",gap:"6px",marginBottom:"14px"}}>
-                  {[["Population",pop,"#e8dcc8"],["Economy",Math.round(eco*10)/10,eco>0?"#c9a84c":"#c4605a"],
-                    ["Mil Str",milStr,"#c47a5a"],["Available",avail,"#4a90c0"]].map(([l,v,c])=>(
-                    <div key={l} style={{textAlign:"center",padding:"7px",background:"rgba(0,0,0,0.2)",borderRadius:"3px"}}>
-                      <div style={{fontSize:"7px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"3px"}}>{l}</div>
-                      <div style={{fontSize:"16px",color:c,fontFamily:"Georgia,serif"}}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-                {/* Editable stats */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:"8px",marginBottom:"12px"}}>
+              <div style={{padding:"12px 16px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:"8px",marginBottom:"10px"}}>
                   {[
-                    {label:"Productivity", key:"productivity", lo:1, hi:5,  val:az.productivity||2, hint:"1-5 · multiplier on pop"},
-                    {label:"Military",     key:"milInvest",    lo:0, hi:20, val:az.milInvest||0,    hint:"Direct mil investment"},
-                    {label:"Unrest",       key:"unrest",       lo:0, hi:10, val:az.unrest||0,       hint:"0-10 · hurts eco + avail"},
-                    {label:"Tariffs",      key:"tariffs",      lo:0, hi:5,  val:az.tariffs||0,      hint:"0-5 · tariff level"},
-                  ].map(s => (
-                    <div key={s.key} style={{padding:"9px 10px",background:"rgba(255,255,255,0.02)",
-                      border:"1px solid rgba(255,255,255,0.07)",borderRadius:"3px"}}>
-                      <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"4px"}}>{s.label}</div>
+                    {label:"Productivity",key:"productivity",lo:1,hi:5,val:azProd,hint:"1–5 · econ multiplier"},
+                    {label:"Mil. Investment",key:"milInvest",lo:0,hi:20,val:azMil,hint:"Direct mil boost"},
+                    {label:"Unrest",key:"unrest",lo:0,hi:10,val:azUnr,hint:"Hurts eco + avail"},
+                  ].map(s=>(
+                    <div key={s.key} style={{padding:"9px 10px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"3px"}}>
+                      <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>{s.label}</div>
                       <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
-                        <AdjBtn onClick={()=>adjStat(s.key,-1,s.lo,s.hi)} red>-</AdjBtn>
-                        <span style={{fontSize:"16px",fontWeight:"bold",color:GOLD,flex:1,textAlign:"center"}}>{s.val}</span>
-                        <AdjBtn onClick={()=>adjStat(s.key,+1,s.lo,s.hi)}>+</AdjBtn>
+                        <AdjBtn onClick={()=>adjAzStat(s.key,-1,s.lo,s.hi)} red>-</AdjBtn>
+                        <span style={{fontSize:"18px",fontWeight:"bold",color:"#e8dcc8",flex:1,textAlign:"center"}}>{s.val}</span>
+                        <AdjBtn onClick={()=>adjAzStat(s.key,+1,s.lo,s.hi)}>+</AdjBtn>
                       </div>
                       <div style={{fontSize:"8px",color:DIM,marginTop:"4px",textAlign:"center"}}>{s.hint}</div>
                     </div>
                   ))}
                 </div>
-                {/* Queued investments */}
-                {pending.length > 0 && (
-                  <div style={{paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Queued (resolves next turn)</div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:"5px"}}>
-                      {pending.map(inv => (
-                        <div key={inv.id} style={{fontSize:"9px",padding:"2px 8px",borderRadius:"3px",
-                          background:inv.type==="literacy"?"rgba(122,156,196,0.1)":"rgba(109,184,122,0.1)",
-                          border:`1px solid ${inv.type==="literacy"?"rgba(122,156,196,0.3)":"rgba(109,184,122,0.3)"}`,
-                          color:inv.type==="literacy"?"#7a9cc4":"#6db87a"}}>
-                          {inv.type==="literacy"?"📚":"🏗"} {inv.label}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <textarea value={az.desc||""} onChange={e=>updAz({desc:e.target.value})}
+                  placeholder="Kingdom description (optional)…" rows={2}
+                  style={{width:"100%",padding:"6px 8px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"3px",color:SOFT,fontFamily:"Georgia,serif",fontSize:"11px",resize:"vertical",lineHeight:"1.5"}}/>
               </div>
             )}
-
-            {/* Regions tab */}
             {azTab==="regions" && (
-              <div style={{padding:"14px 16px"}}>
-                <div style={{fontSize:"9px",color:DIM,marginBottom:"10px",letterSpacing:"1px"}}>
-                  Each region contributes population. Pop × Productivity = base economy.
-                </div>
-                {(az.regions||[]).length === 0 && (
-                  <div style={{textAlign:"center",padding:"12px",color:DIM,fontSize:"10px",fontStyle:"italic"}}>No regions added yet</div>
-                )}
-                <div style={{display:"flex",flexDirection:"column",gap:"4px",marginBottom:"12px"}}>
-                  {(az.regions||[]).map(r => (
-                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:"8px",padding:"6px 10px",
-                      background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"3px"}}>
+              <div style={{padding:"12px 16px"}}>
+                <div style={{fontSize:"9px",color:DIM,marginBottom:"8px",letterSpacing:"1px"}}>Each region contributes population. Pop × Productivity = base economy.</div>
+                {(az.regions||[]).length===0 && <div style={{fontSize:"10px",color:DIM,fontStyle:"italic",marginBottom:"10px"}}>No regions yet</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:"4px",marginBottom:"10px"}}>
+                  {(az.regions||[]).map(r=>(
+                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:"8px",padding:"5px 10px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"3px"}}>
                       <span style={{flex:1,fontSize:"11px",color:"#e8dcc8"}}>{r.name}</span>
-                      <span style={{fontSize:"8px",color:DIM,letterSpacing:"1px"}}>pop</span>
-                      <AdjBtn onClick={()=>adjRegPop(r.id,-1)} red>-</AdjBtn>
-                      <span style={{fontSize:"13px",fontWeight:"bold",color:GOLD,minWidth:"18px",textAlign:"center"}}>{r.pop||1}</span>
-                      <AdjBtn onClick={()=>adjRegPop(r.id,+1)}>+</AdjBtn>
-                      <button onClick={()=>upd({regions:(az.regions||[]).filter(x=>x.id!==r.id)})}
-                        style={{padding:"1px 7px",cursor:"pointer",background:"rgba(200,60,60,0.07)",
-                          border:"1px solid rgba(200,60,60,0.2)",borderRadius:"3px",color:"#c4605a",fontSize:"10px"}}>✕</button>
+                      <span style={{fontSize:"8px",color:DIM}}>pop</span>
+                      <AdjBtn onClick={()=>adjAzRegPop(r.id,-1)} red>-</AdjBtn>
+                      <span style={{fontSize:"14px",fontWeight:"bold",color:GOLD,minWidth:"18px",textAlign:"center"}}>{r.pop||1}</span>
+                      <AdjBtn onClick={()=>adjAzRegPop(r.id,+1)}>+</AdjBtn>
+                      <button onClick={()=>removeAzRegion(r.id)} style={{padding:"1px 7px",cursor:"pointer",background:"rgba(200,60,60,0.07)",border:"1px solid rgba(200,60,60,0.2)",borderRadius:"3px",color:"#c4605a",fontSize:"10px"}}>✕</button>
                     </div>
                   ))}
                 </div>
-                {/* Add region */}
                 <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
-                  <input value={newRegName} onChange={e=>setNewRegName(e.target.value)}
-                    onKeyDown={e=>e.key==="Enter"&&addRegion()}
+                  <input value={newRegN} onChange={e=>setNewRegN(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&addAzRegion()}
                     placeholder="Region name…"
-                    style={{flex:1,padding:"5px 8px",background:"rgba(255,255,255,0.04)",
-                      border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",
-                      color:"#e8dcc8",fontFamily:"Georgia,serif",fontSize:"11px"}}/>
-                  <span style={{fontSize:"9px",color:DIM,flexShrink:0}}>pop</span>
-                  <input type="number" min={1} max={10} value={newRegPop}
-                    onChange={e=>setNewRegPop(parseInt(e.target.value)||1)}
-                    style={{width:"44px",padding:"5px 6px",background:"rgba(255,255,255,0.04)",
-                      border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",
-                      color:"#e8dcc8",fontFamily:"Georgia,serif",fontSize:"11px",textAlign:"center"}}/>
-                  <button onClick={addRegion}
-                    style={{padding:"5px 14px",cursor:"pointer",background:"rgba(201,168,76,0.12)",
-                      border:"1px solid rgba(201,168,76,0.35)",borderRadius:"3px",
-                      color:GOLD,fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",flexShrink:0}}>
+                    style={{flex:1,padding:"5px 8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:"#e8dcc8",fontFamily:"Georgia,serif",fontSize:"11px"}}/>
+                  <span style={{fontSize:"9px",color:DIM}}>pop</span>
+                  <input type="number" min={1} max={10} value={newRegP}
+                    onChange={e=>setNewRegP(parseInt(e.target.value)||1)}
+                    style={{width:"44px",padding:"5px 6px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:"#e8dcc8",fontFamily:"Georgia,serif",fontSize:"11px",textAlign:"center"}}/>
+                  <button onClick={addAzRegion}
+                    style={{padding:"5px 14px",cursor:"pointer",background:"rgba(201,168,76,0.15)",border:"1px solid rgba(201,168,76,0.4)",borderRadius:"3px",color:GOLD,fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",flexShrink:0}}>
                     + Add
                   </button>
                 </div>
-                {(az.regions||[]).length > 0 && (
-                  <div style={{marginTop:"10px",fontSize:"10px",color:SOFT,textAlign:"right"}}>
-                    Total pop: <span style={{color:GOLD,fontWeight:"bold"}}>{pop}</span>
-                    {" · "}Eco at prod {az.productivity||2}: <span style={{color:"#c9a84c",fontWeight:"bold"}}>
-                      {Math.round(Math.max(0, pop*(az.productivity||2) - (az.milInvest||0)*0.5 - (az.unrest||0)*1.5)*10)/10}
-                    </span>
+                {(az.regions||[]).length>0 && (
+                  <div style={{marginTop:"8px",fontSize:"10px",color:SOFT,textAlign:"right"}}>
+                    Total pop: <span style={{color:GOLD,fontWeight:"bold"}}>{azPop}</span>
+                    {" · "}Eco at prod {azProd}: <span style={{color:"#c9a84c",fontWeight:"bold"}}>{Math.round(Math.max(0,azPop*azProd-azMil*0.5-azUnr*1.5)*10)/10}</span>
                   </div>
                 )}
               </div>
@@ -2837,22 +2878,6 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
                             </button>
                           ))}
 
-                          {/* Negotiate Trade Deal — only nations with standing ≥ 0 and no active deal */}
-                          {activePicker.action.type === "pickNation" && activePicker.action.id === "for_trade" && (nations||[]).map(n => {
-                            const st = n.diplo?.azzuria ?? 0;
-                            const hasDeal = (deals||[]).some(d=>(d.aId===n.id||d.bId===n.id));
-                            const blocked = st < 0 || hasDeal;
-                            return (
-                              <button key={n.id} onClick={() => !blocked && execAction(m.id, activePicker.action, {nationId:n.id})}
-                                style={{padding:"5px 12px",cursor:blocked?"not-allowed":"pointer",fontFamily:"Georgia,serif",fontSize:"9px",
-                                  background:"rgba(255,255,255,0.03)",border:`1px solid ${blocked?"rgba(255,255,255,0.06)":n.color+"44"}`,
-                                  borderRadius:"3px",color:blocked?DIM:n.color,textAlign:"left",display:"flex",flexDirection:"column",gap:"1px"}}>
-                                <span>{n.name}</span>
-                                <span style={{fontSize:"8px",color:SOFT}}>{hasDeal?"Deal active":st<0?"Hostile (need ≥0)":"Standing "+st+" — +"+Math.max(0,st)+" income"}</span>
-                              </button>
-                            );
-                          })}
-
                           {/* Issue Condemnation — step 1: reason */}
                           {activePicker.action.id === "for_condemn" && activePicker.step === "reason" && CONDEMN_REASONS.map((r,ri) => (
                             <button key={ri} onClick={() => setActivePicker(p => ({...p, step:"nation", reasonIdx:ri}))}
@@ -2876,29 +2901,6 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
                               </button>
                             );
                           })}
-
-                          {/* Offer Peace — list active wars */}
-                          {activePicker.action.id === "for_peace" && activePicker.step === "war" && (
-                            (wars||[]).length === 0
-                              ? <span style={{fontSize:"10px",color:DIM,fontStyle:"italic"}}>No active wars.</span>
-                              : (wars||[]).map(w => {
-                                  const attN = (nations||[]).find(n=>n.id===w.attId);
-                                  const defN = (nations||[]).find(n=>n.id===w.defId);
-                                  const attName = w.attId==="azzuria"?"Azzuria":(attN?.name||w.attId);
-                                  const defName = w.defId==="azzuria"?"Azzuria":(defN?.name||w.defId);
-                                  const sc = w.score||0;
-                                  const lbl = sc>=5?"Decisive attacker win":sc>=3?"Attacker winning":sc>=1?"Attacker edge":sc>-1?"Stalemate":sc>=-3?"Defender edge":sc>=-5?"Defender winning":"Decisive defender win";
-                                  return (
-                                    <button key={w.id} onClick={() => execAction(m.id, activePicker.action, {warId:w.id})}
-                                      style={{padding:"6px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",
-                                        background:"rgba(196,96,90,0.06)",border:"1px solid rgba(196,96,90,0.25)",
-                                        borderRadius:"3px",color:"#c4605a",textAlign:"left",display:"flex",flexDirection:"column",gap:"2px",width:"100%"}}>
-                                      <span>{attName} vs {defName} — T{w.turns||0}</span>
-                                      <span style={{fontSize:"8px",color:SOFT}}>Score {sc>0?"+":""}{sc} · {lbl}</span>
-                                    </button>
-                                  );
-                                })
-                          )}
 
                           {activePicker.action.type === "pickRegion" && REGIONS.map((r,ri) => (
                             <button key={ri} onClick={() => execAction(m.id, activePicker.action, {regionIdx:ri})}
@@ -3255,7 +3257,7 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
 
 // ── ELECTION TAB ──────────────────────────────────────────────────────────────
 
-function ElectionTab({candidates, data, agitation, natUnrest, turn, senateHolder, setSenateHolder, onSaveElection, electionHistory}) {
+function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, senateHolder, setSenateHolder, onSaveElection, electionHistory}) {
   // Local roll state — intentionally resets between sessions (it's a roll, not persistent data)
   const [results,      setResults]      = useState(null);
   const [rolling,      setRolling]      = useState(false);
@@ -3275,7 +3277,7 @@ function ElectionTab({candidates, data, agitation, natUnrest, turn, senateHolder
     setRolling(true);
     setTimeout(() => {
       // Wheel: weight = BASE_WHEEL + pop (min 1). Roll 1..totalWeight, pick party.
-      const BASE_WHEEL = 5;
+      const BASE_WHEEL = 1;
       const wheelSpin = (entries) => {
         const weights = entries.map(({c, pop}) => ({c, pop, weight: Math.max(1, BASE_WHEEL + pop)}));
         const total   = weights.reduce((s, e) => s + e.weight, 0);
@@ -3284,14 +3286,26 @@ function ElectionTab({candidates, data, agitation, natUnrest, turn, senateHolder
         for (const e of weights) { cum += e.weight; if (roll <= cum) return {winner: e, roll, total, weights}; }
         return {winner: weights[weights.length-1], roll, total, weights};
       };
-      const popByRegion = candidates.map(c => ({c, regionPop: calcPopularity(c, data, agitation, natUnrest)}));
+      // Popularity threshold: parties below this score in a region are simply not on the ballot there.
+      // No fallback — if every party is below threshold the region stays uncontested (winner = highest pop).
+      const REGION_THRESHOLD = 5;
+
+      const popByRegion = candidates.map(c => ({c, regionPop: calcPopularity(c, data, agitation, natUnrest, tariffs, turn, candidates)}));
       const collegeResults = COLLEGES.map((col, idx) => {
         const rIdx = col.r;
-        const entries = popByRegion.map(({c, regionPop}) => ({c, pop: regionPop[rIdx]}));
+        const eligible = popByRegion.filter(({regionPop}) => regionPop[rIdx] >= REGION_THRESHOLD);
+        // If nobody qualifies, only the highest-pop party can win (uncontested region)
+        const pool = eligible.length > 0 ? eligible : [popByRegion.reduce((a,b) => b.regionPop[rIdx] > a.regionPop[rIdx] ? b : a)];
+        // Eligible parties: weight = BASE_WHEEL + pop. Non-eligible are not in the pool at all.
+        const entries = pool.map(({c, regionPop}) => ({c, pop: regionPop[rIdx]}));
         const {winner, roll, total, weights} = wheelSpin(entries);
-        // Keep rolls array in same shape for the result display
-        const rolls = weights.map(e => ({c: e.c, pop: e.pop, weight: e.weight, total, roll, isWinner: e.c.id === winner.c.id}));
-        return {idx: idx+1, name: col.n, rIdx, winner, rolls};
+        // For display: show all candidates with their actual pop, marking who was eligible
+        const allRolls = popByRegion.map(({c, regionPop}) => {
+          const inPool = pool.some(p => p.c.id === c.id);
+          const w = weights.find(ww => ww.c.id === c.id);
+          return {c, pop: regionPop[rIdx], weight: inPool ? (w?.weight||0) : 0, total, roll, isWinner: c.id === winner.c.id, excluded: !inPool};
+        });
+        return {idx: idx+1, name: col.n, rIdx, winner, rolls: allRolls};
       });
       const seatTotals = {};
       const regionSeats = REGIONS.map(() => { const o = {}; candidates.forEach(c=>{o[c.id]=0;}); return o; });
@@ -3308,7 +3322,7 @@ function ElectionTab({candidates, data, agitation, natUnrest, turn, senateHolder
     setSenRolling(true);
     setTimeout(() => {
       // Wheel: weight = BASE_WHEEL + pop (min 1). Roll 1..totalWeight, pick party.
-      const BASE_WHEEL = 5;
+      const BASE_WHEEL = 1;
       const wheelSpin = (entries) => {
         const weights = entries.map(({c, pop}) => ({c, pop, weight: Math.max(1, BASE_WHEEL + pop)}));
         const total   = weights.reduce((s, e) => s + e.weight, 0);
@@ -3317,10 +3331,13 @@ function ElectionTab({candidates, data, agitation, natUnrest, turn, senateHolder
         for (const e of weights) { cum += e.weight; if (roll <= cum) return {winner: e, roll, total, weights}; }
         return {winner: weights[weights.length-1], roll, total, weights};
       };
-      const pops = candidates.map(c => ({c, regionPop: calcPopularity(c, data, agitation, natUnrest)}));
+      const REGION_THRESHOLD = 5;
+      const pops = candidates.map(c => ({c, regionPop: calcPopularity(c, data, agitation, natUnrest, tariffs, turn, candidates)}));
       const senColleges = REGIONS.flatMap((region, rIdx) =>
         Array.from({length: SENATE_SEATS_PER_REGION}, (_, sIdx) => {
-          const entries = pops.map(({c, regionPop}) => ({c, pop: regionPop[rIdx]}));
+          const eligible = pops.filter(({regionPop}) => regionPop[rIdx] >= REGION_THRESHOLD);
+          const pool = eligible.length > 0 ? eligible : [pops.reduce((a,b) => b.regionPop[rIdx] > a.regionPop[rIdx] ? b : a)];
+          const entries = pool.map(({c, regionPop}) => ({c, pop: regionPop[rIdx]}));
           const {winner, roll, total, weights} = wheelSpin(entries);
           const rolls = weights.map(e => ({c: e.c, pop: e.pop, weight: e.weight, total, roll, isWinner: e.c.id === winner.c.id}));
           return {region, rIdx, seat: sIdx+1, winner, rolls};
@@ -3904,8 +3921,6 @@ function calcNationEco(n) {
   return { pop, eco: Math.round(eco * 10) / 10, milStr, avail };
 }
 
-// ── COALITIONS PANEL ─────────────────────────────────────────────────────────
-
 function CoalitionsPanel({coalitions, setCoalitions, candidates, electionHistory}) {
   const [newName,  setNewName]  = useState("");
   const [newColor, setNewColor] = useState("#9b7fba");
@@ -4075,7 +4090,7 @@ function CoalitionsPanel({coalitions, setCoalitions, candidates, electionHistory
 
 // ── PARTY REGISTRY ───────────────────────────────────────────────────────────
 
-function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, government, coalitions, setCoalitions, electionHistory}) {
+function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, government, turn, coalitions, setCoalitions, electionHistory}) {
   const [sel,       setSel]       = useState(candidates[0]?.id ?? null);
   const [editName,  setEditName]  = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -4111,7 +4126,7 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
     });
   };
 
-  const pops = cand ? calcPopularity(cand, data, agitation, natUnrest) : [];
+  const pops = cand ? calcPopularity(cand, data, agitation, natUnrest, government?.tariffs||0, turn, candidates) : [];
   const totalPop = pops.reduce((a,b)=>a+b, 0);
   const bestIdx  = pops.indexOf(Math.max(...pops));
   const worstIdx = pops.indexOf(Math.min(...pops));
@@ -4131,8 +4146,6 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
 
   return (
     <div style={{padding:"16px 14px", maxWidth:"1000px", margin:"0 auto"}}>
-
-      <CoalitionsPanel coalitions={coalitions} setCoalitions={setCoalitions} candidates={candidates} electionHistory={electionHistory}/>
 
       {/* Party selector */}
       <div style={{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap",marginBottom:"18px"}}>
@@ -4155,6 +4168,9 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
           + New
         </button>
       </div>
+
+      {/* Coalitions */}
+      <CoalitionsPanel coalitions={coalitions} setCoalitions={setCoalitions} candidates={candidates} electionHistory={electionHistory}/>
 
       {!cand ? (
         <div style={{textAlign:"center",padding:"40px",color:DIM,fontSize:"11px",fontStyle:"italic"}}>No parties yet</div>
@@ -4242,7 +4258,7 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
               {/* Home regions */}
               <div style={{marginBottom:"14px"}}>
                 <div style={{fontSize:"8px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"6px"}}>
-                  Home Regions <span style={{color:SOFT,fontSize:"8px",letterSpacing:"0",textTransform:"none"}}>(+3 flat bonus)</span>
+                  Home Regions <span style={{color:SOFT,fontSize:"8px",letterSpacing:"0",textTransform:"none"}}>(×1.25 popularity multiplier)</span>
                 </div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"4px"}}>
                   {REGIONS.map((r,i) => {
@@ -4269,32 +4285,6 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
                     {ministriesHeld.map(m => (
                       <span key={m} style={{fontSize:"9px",padding:"2px 8px",borderRadius:"3px",
                         background:"rgba(201,168,76,0.08)",border:"1px solid rgba(201,168,76,0.22)",color:GOLD}}>{m}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(cand.tags||[]).length > 0 && (
-                <div style={{paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-                  <div style={{fontSize:"8px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"6px"}}>Ideology</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:"4px"}}>
-                    {(cand.tags||[]).map(t => (
-                      <span key={t} style={{fontSize:"9px",padding:"2px 8px",borderRadius:"3px",
-                        background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.12)",color:SOFT}}>{t}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(cand.chars||[]).length > 0 && (
-                <div style={{paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-                  <div style={{fontSize:"8px",letterSpacing:"3px",color:DIM,textTransform:"uppercase",marginBottom:"6px"}}>Notable Members</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
-                    {(cand.chars||[]).map((ch,i) => (
-                      <div key={i} style={{display:"flex",alignItems:"baseline",gap:"8px",fontSize:"10px"}}>
-                        <span style={{color:"#e8dcc8"}}>{ch.name}</span>
-                        {ch.role && <span style={{color:DIM,fontStyle:"italic"}}>{ch.role}</span>}
-                      </div>
                     ))}
                   </div>
                 </div>
@@ -4363,19 +4353,27 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
               ) : (
                 <div style={{display:"flex",flexDirection:"column",gap:"7px"}}>
                   {cand.laws.map(law => {
-                    const hasBonus = law.effects.some(e=>e.type==="bonus");
-                    const hasMalus = law.effects.some(e=>e.type==="malus");
+                    const hasBonus  = law.effects.some(e=>e.type==="bonus");
+                    const hasMalus  = law.effects.some(e=>e.type==="malus");
                     const typeColor = hasBonus&&hasMalus?"#c4a96b":hasBonus?"#80c890":"#e08060";
                     const typeLabel = hasBonus&&hasMalus?"Reform":hasBonus?"Progressive":"Restrictive";
+                    const age       = Math.max(0, turn - (law.enactedTurn || 1));
+                    const expired   = age >= 12;
+                    const turnsLeft = Math.max(0, (law.enactedTurn||1) + 12 - turn);
+                    const expColor  = turnsLeft <= 2 ? "#c4605a" : turnsLeft <= 4 ? "#c9a84c" : "#6db87a";
                     return (
                       <div key={law.id} style={{padding:"10px 12px",background:"rgba(255,255,255,0.015)",
-                        borderLeft:`3px solid ${cand.color}`,border:`1px solid ${cand.color}18`,borderRadius:"3px",
-                        display:"flex",alignItems:"flex-start",gap:"8px"}}>
+                        borderLeft:`3px solid ${expired?"#5a4a30":cand.color}`,border:`1px solid ${cand.color}18`,borderRadius:"3px",
+                        display:"flex",alignItems:"flex-start",gap:"8px",opacity:expired?0.45:1}}>
                         <div style={{flex:1}}>
                           <div style={{display:"flex",alignItems:"center",gap:"7px",marginBottom:"4px",flexWrap:"wrap"}}>
                             <span style={{fontSize:"12px",color:"#e8dcc8"}}>{law.name}</span>
                             <span style={{fontSize:"8px",padding:"1px 6px",borderRadius:"3px",
                               background:typeColor+"18",border:`1px solid ${typeColor}44`,color:typeColor}}>{typeLabel}</span>
+                            {expired
+                              ? <span style={{fontSize:"8px",color:"#c4605a",border:"1px solid rgba(200,80,60,0.3)",borderRadius:"3px",padding:"1px 5px",letterSpacing:"1px"}}>EXPIRED</span>
+                              : <span style={{fontSize:"8px",color:expColor,border:`1px solid ${expColor}44`,borderRadius:"3px",padding:"1px 5px",letterSpacing:"1px"}}>T+{turnsLeft}</span>
+                            }
                           </div>
                           {law.desc&&<div style={{fontSize:"10px",color:SOFT,fontStyle:"italic",marginBottom:"5px"}}>{law.desc}</div>}
                           <div style={{display:"flex",flexWrap:"wrap",gap:"3px"}}>
@@ -4647,7 +4645,7 @@ function NationEditor({nation, onChange, onDelete, wars, deals, nations}) {
       {tab==="diplo" && (
         <div style={{padding:"14px 16px"}}>
           {/* Standing vs Azzuria */}
-          <div style={{marginBottom:"12px"}}>
+          <div style={{marginBottom:"14px"}}>
             <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"7px"}}>Standing vs Azzuria</div>
             <div style={{display:"flex",gap:"4px",alignItems:"center"}}>
               {[-3,-2,-1,0,1,2,3].map(v => {
@@ -4665,37 +4663,104 @@ function NationEditor({nation, onChange, onDelete, wars, deals, nations}) {
                 );
               })}
             </div>
+            <div style={{marginTop:"5px",fontSize:"9px",color:az<=-2?"#c4605a":az>=2?"#6db87a":DIPLO_COLORS[az+3],
+              fontStyle:"italic"}}>{DIPLO_LABELS[az+3]}{az<=-2?" — casus belli possible":az>=1?" — trade eligible":""}</div>
           </div>
-          {/* Active conflicts/deals */}
-          {(wars||[]).filter(w=>w.attId===nation.id||w.defId===nation.id).map(w => {
-            const oId = w.attId===nation.id ? w.defId : w.attId;
-            const oName = oId==="azzuria"?"Azzuria":nations.find(n=>n.id===oId)?.name||oId;
-            return (
-              <div key={w.id} style={{marginBottom:"6px",padding:"7px 10px",
-                background:"rgba(196,96,90,0.06)",border:"1px solid rgba(196,96,90,0.2)",borderRadius:"3px",
-                fontSize:"10px",color:SOFT}}>
-                ⚔ At war with <span style={{color:"#e8dcc8"}}>{oName}</span>
-                {" — "} score {w.score>0?"+":""}{w.score||0}, turn {w.turns||0}
+
+          {/* Inter-nation standing grid */}
+          {(nations||[]).filter(n=>n.id!==nation.id).length > 0 && (
+            <div style={{marginBottom:"14px"}}>
+              <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"6px"}}>Standing vs Other Nations</div>
+              <div style={{display:"flex",flexDirection:"column",gap:"3px"}}>
+                {(nations||[]).filter(n=>n.id!==nation.id).map(other => {
+                  const sv = ((nation.standingVs||{})[other.id]) ?? 0;
+                  const dcol = DIPLO_COLORS[Math.max(0,Math.min(6,sv+3))];
+                  const dlbl = DIPLO_LABELS[Math.max(0,Math.min(6,sv+3))];
+                  return (
+                    <div key={other.id} style={{display:"flex",alignItems:"center",gap:"8px",padding:"4px 8px",
+                      background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"3px"}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:other.color,flexShrink:0}}/>
+                      <span style={{fontSize:"10px",color:SOFT,flex:1}}>{other.name}</span>
+                      <div style={{display:"flex",gap:"2px"}}>
+                        {[-3,-2,-1,0,1,2,3].map(v=>(
+                          <button key={v} onClick={()=>upd({standingVs:{...(nation.standingVs||{}),[other.id]:v}})}
+                            style={{width:"18px",height:"16px",cursor:"pointer",fontSize:"8px",borderRadius:"2px",padding:0,
+                              background:sv===v?dcol+"22":"transparent",
+                              border:`1px solid ${sv===v?dcol:"rgba(255,255,255,0.07)"}`,
+                              color:sv===v?dcol:DIM}}>{v}</button>
+                        ))}
+                      </div>
+                      <span style={{fontSize:"8px",color:dcol,minWidth:"38px",textAlign:"right"}}>{dlbl.slice(0,5)}</span>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-          {(deals||[]).filter(d=>d.aId===nation.id||d.bId===nation.id).map(d => {
-            const oId = d.aId===nation.id ? d.bId : d.aId;
-            const oName = oId==="azzuria"?"Azzuria":nations.find(n=>n.id===oId)?.name||oId;
-            return (
-              <div key={d.id} style={{marginBottom:"6px",padding:"7px 10px",
-                background:"rgba(74,154,106,0.05)",border:"1px solid rgba(74,154,106,0.18)",borderRadius:"3px",
-                fontSize:"10px",color:SOFT}}>
-                🤝 Trade deal with <span style={{color:"#e8dcc8"}}>{oName}</span> — {d.turnsLeft} turns left
-              </div>
-            );
-          })}
-          {/* Recent events */}
+            </div>
+          )}
+
+          {/* Active conflicts */}
+          {(wars||[]).filter(w=>w.attId===nation.id||w.defId===nation.id).length > 0 && (
+            <div style={{marginBottom:"10px"}}>
+              <div style={{fontSize:"8px",color:"#c4605a",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Active Wars</div>
+              {(wars||[]).filter(w=>w.attId===nation.id||w.defId===nation.id).map(w => {
+                const oId = w.attId===nation.id ? w.defId : w.attId;
+                const oName = oId==="azzuria"?"Azzuria":nations.find(n=>n.id===oId)?.name||oId;
+                const isAtt = w.attId===nation.id;
+                return (
+                  <div key={w.id} style={{marginBottom:"5px",padding:"7px 10px",
+                    background:"rgba(196,96,90,0.06)",border:"1px solid rgba(196,96,90,0.2)",
+                    borderLeft:`3px solid ${isAtt?"#c4605a":"#6db87a"}`,borderRadius:"3px",
+                    fontSize:"10px",color:SOFT}}>
+                    {isAtt?"⚔ Attacking":"🛡 Defending vs"} <span style={{color:"#e8dcc8"}}>{oName}</span>
+                    {" — score "}{w.score>0?"+":""}{w.score||0}{", turn "}{w.turns||0}
+                    {w.battleLog?.length > 0 && (
+                      <div style={{marginTop:"4px",fontSize:"9px",color:DIM}}>
+                        Last battle: {w.battleLog[w.battleLog.length-1]?.out}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Active deals */}
+          {(deals||[]).filter(d=>d.aId===nation.id||d.bId===nation.id).length > 0 && (
+            <div style={{marginBottom:"10px"}}>
+              <div style={{fontSize:"8px",color:"#6db87a",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Trade Deals</div>
+              {(deals||[]).filter(d=>d.aId===nation.id||d.bId===nation.id).map(d => {
+                const oId = d.aId===nation.id ? d.bId : d.aId;
+                const oName = oId==="azzuria"?"Azzuria":nations.find(n=>n.id===oId)?.name||oId;
+                return (
+                  <div key={d.id} style={{marginBottom:"4px",padding:"5px 10px",
+                    background:"rgba(74,154,106,0.05)",border:"1px solid rgba(74,154,106,0.18)",borderRadius:"3px",
+                    fontSize:"10px",color:SOFT,display:"flex",justifyContent:"space-between"}}>
+                    <span>🤝 <span style={{color:"#e8dcc8"}}>{oName}</span></span>
+                    <span style={{color:"#6db87a"}}>{d.turnsLeft} turns left</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Condemnation log */}
+          {(nation.condemnLog||[]).length > 0 && (
+            <div style={{marginBottom:"10px",paddingTop:"8px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+              <div style={{fontSize:"8px",color:"#c4605a",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>Condemnation Log</div>
+              {(nation.condemnLog||[]).map((cl,i) => (
+                <div key={i} style={{fontSize:"9px",color:SOFT,lineHeight:"1.7",marginBottom:"2px"}}>
+                  <span style={{color:"#c47a5a",marginRight:"6px"}}>T{cl.turn}:</span>{cl.reason}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Event history */}
           {(nation.events||[]).length > 0 && (
-            <div style={{marginTop:"8px",paddingTop:"8px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+            <div style={{paddingTop:"8px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
               <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"5px"}}>History</div>
-              {(nation.events||[]).slice(0,4).map((ev,i) => (
-                <div key={i} style={{fontSize:"10px",color:SOFT,lineHeight:"1.6"}}>
+              {(nation.events||[]).slice(0,6).map((ev,i) => (
+                <div key={i} style={{fontSize:"10px",color:ev.action?.startsWith("REVOLUTION")?"#c47a5a":SOFT,lineHeight:"1.6"}}>
                   <span style={{color:DIM}}>{ev.season} {ev.year}: </span>{ev.action}
                 </div>
               ))}
@@ -5082,7 +5147,7 @@ function HomeTab({turn, natUnrest, agitation, candidates, data, government, nati
           {REGIONS.map((r, rIdx) => {
             const rd   = REGION_DATA[rIdx];
             const lit  = litLevel(data, rIdx);
-            const pops = candidates.map(c => ({c, score:calcPopularity(c,data,agitation,natUnrest)[rIdx]}));
+            const pops = candidates.map(c => ({c, score:calcPopularity(c,data,agitation,natUnrest,government?.tariffs||0,turn,candidates)[rIdx]}));
             const lead = pops.reduce((a,b)=>a.score>=b.score?a:b, {score:-999,c:null});
             const colSum = data.reduce((s,row)=>s+row[rIdx],0);
             const domClass = data.reduce((best,_,ri)=>data[ri][rIdx]>data[best][rIdx]?ri:best,0);
@@ -5119,10 +5184,10 @@ function HomeTab({turn, natUnrest, agitation, candidates, data, government, nati
             <div style={{fontSize:"9px",letterSpacing:"4px",color:"#9b7fba",textTransform:"uppercase",marginBottom:"12px"}}>Active Coalitions</div>
             <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
               {coalitions.map(coal => {
-                const seats   = coal.memberIds.reduce((s,id) => s+(seatTotals[id]||0), 0);
+                const seats   = (coal.memberIds||[]).reduce((s,id) => s+(seatTotals[id]||0), 0);
                 const pct     = totalSeats ? Math.round(seats/totalSeats*100) : 0;
                 const hasMaj  = seats >= MAJORITY;
-                const members = candidates.filter(c => coal.memberIds.includes(c.id));
+                const members = candidates.filter(c => (coal.memberIds||[]).includes(c.id));
                 return (
                   <div key={coal.id} style={{padding:"10px 12px",background:"rgba(255,255,255,0.02)",
                     border:`1px solid ${coal.color}33`,borderLeft:`3px solid ${coal.color}`,borderRadius:"4px"}}>
@@ -5239,6 +5304,466 @@ function HomeTab({turn, natUnrest, agitation, candidates, data, government, nati
   );
 }
 
+// ── MILITARY & REVOLT SYSTEM ─────────────────────────────────────────────────
+// State shape:
+//   revolts:      [{id, regionIdx, classIdx, strength:1-6, turn, suppressed:bool}]
+//   paramilitaries:[{id, partyId, name, strength:1-5, regionIdx, type:"paramilitary"|"police"}]
+//   azzuriaArmy:  {strength:1-10, morale:1-5, deployed:[{regionIdx, units}]}
+
+const REVOLT_CAUSES = [
+  "Bread riots — hunger drives the workers into the streets",
+  "Tax revolt — the burden falls hardest on those least able to bear it",
+  "Conscription protests — families resist sending sons to a distant war",
+  "Land enclosures — common land seized by noble decree",
+  "Strike action — factory workers walk out and hold the gates",
+  "Religious procession turns violent — a spark becomes a blaze",
+  "Electoral fraud alleged — crowds demand justice at the prefect's door",
+  "Harvest failure — rural communities reach breaking point",
+];
+
+const revoltPhase = s => {
+  if (s <= 2) return { label:"Unrest",    color:"#c9a84c", bg:"rgba(201,168,76,0.08)" };
+  if (s <= 4) return { label:"Rising",    color:"#c47a5a", bg:"rgba(196,96,90,0.08)"  };
+  return             { label:"Revolt",    color:"#c4605a", bg:"rgba(200,60,60,0.12)"  };
+};
+
+function MilitaryTab({
+  revolts, setRevolts,
+  paramilitaries, setParamilitaries,
+  azzuriaArmy, setAzzuriaArmy,
+  agitation, setAgitation,
+  natUnrest, candidates, government, turn,
+}) {
+  const [panel, setPanel] = useState("revolts");
+  const [revForm, setRevForm] = useState({regionIdx:0, classIdx:0, strength:3, cause:0});
+  const [pmForm,  setPmForm]  = useState({partyId:"", name:"", strength:2, regionIdx:0, type:"paramilitary"});
+  const [showRevForm, setShowRevForm] = useState(false);
+  const [showPmForm,  setShowPmForm]  = useState(false);
+
+  // ── Army helpers ──
+  const adjArmy = (key, d, lo=0, hi=10) =>
+    setAzzuriaArmy(a => ({...a, [key]: Math.max(lo, Math.min(hi, (a[key]||0) + d))}));
+
+  // ── Revolt: GM spawns ──
+  const addRevolt = () => {
+    const r = {
+      id: Date.now(),
+      regionIdx:  revForm.regionIdx,
+      classIdx:   revForm.classIdx,
+      strength:   revForm.strength,
+      cause:      REVOLT_CAUSES[revForm.cause],
+      turn,
+      suppressed: false,
+    };
+    setRevolts(p => [...p, r]);
+    // Spawning a revolt raises agitation for that class
+    setAgitation(p => { const n=[...p]; n[r.classIdx]=Math.min(6,n[r.classIdx]+2); return n; });
+    setShowRevForm(false);
+  };
+
+  // ── Suppress revolt ──
+  // Options: Army (−strength by army morale), Paramilitary (−strength by pm strength), Police (−1 only)
+  const suppress = (revId, method, pmId) => {
+    setRevolts(prev => prev.map(r => {
+      if (r.id !== revId) return r;
+      let reduce = 0;
+      if (method === "army")  reduce = Math.min(r.strength, azzuriaArmy?.morale || 1);
+      if (method === "pm")    reduce = Math.min(r.strength, (paramilitaries.find(p=>p.id===pmId)?.strength||1));
+      if (method === "police")reduce = 1;
+      const ns = r.strength - reduce;
+      if (ns <= 0) {
+        // Revolt crushed — lower agitation
+        setAgitation(ag => { const n=[...ag]; n[r.classIdx]=Math.max(0,n[r.classIdx]-2); return n; });
+        return {...r, strength:0, suppressed:true};
+      }
+      return {...r, strength:ns};
+    }));
+    // Army suppression damages morale
+    if (method === "army") setAzzuriaArmy(a => ({...a, morale:Math.max(1,(a.morale||3)-1)}));
+  };
+
+  const removeRevolt = id => setRevolts(p => p.filter(r => r.id !== id));
+
+  // ── Paramilitary CRUD ──
+  const addPm = () => {
+    if (!pmForm.name.trim()) return;
+    setParamilitaries(p => [...p, {id:Date.now(), ...pmForm, name:pmForm.name.trim()}]);
+    setPmForm({partyId:"", name:"", strength:2, regionIdx:0, type:"paramilitary"});
+    setShowPmForm(false);
+  };
+  const removePm  = id => setParamilitaries(p => p.filter(x => x.id !== id));
+  const adjPm     = (id,d) => setParamilitaries(p => p.map(x =>
+    x.id===id ? {...x, strength:Math.max(1,Math.min(5,x.strength+d))} : x));
+
+  // ── Deploy army to region ──
+  const deployArmy = (regionIdx) => {
+    setAzzuriaArmy(a => {
+      const deployed = [...(a.deployed||[])];
+      const idx = deployed.findIndex(d=>d.regionIdx===regionIdx);
+      if (idx >= 0) { deployed.splice(idx,1); } // toggle off
+      else { deployed.push({regionIdx, units:1}); }
+      return {...a, deployed};
+    });
+  };
+
+  const activeRevolts = (revolts||[]).filter(r=>!r.suppressed);
+  const crushed       = (revolts||[]).filter(r=>r.suppressed);
+  const army          = azzuriaArmy || {strength:3, morale:3, deployed:[]};
+  const deployedIdx   = new Set((army.deployed||[]).map(d=>d.regionIdx));
+
+  const S_inp = {padding:"5px 8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:"#e8dcc8",fontFamily:"Georgia,serif",fontSize:"11px"};
+
+  return (
+    <div style={{padding:"16px 14px", maxWidth:"900px", margin:"0 auto"}}>
+
+      {/* Sub-nav */}
+      <div style={{display:"flex",gap:0,marginBottom:"20px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"4px",overflow:"hidden"}}>
+        {[["revolts","Revolts"],["army","Royal Army"],["paramilitaries","Factions"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setPanel(k)}
+            style={{flex:1,padding:"9px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",
+              letterSpacing:"2px",textTransform:"uppercase",background:panel===k?"rgba(255,255,255,0.05)":"none",
+              border:"none",color:panel===k?"#e8dcc8":DIM,
+              borderRight:k!=="paramilitaries"?"1px solid rgba(255,255,255,0.07)":"none"}}>
+            {l}
+            {k==="revolts"&&activeRevolts.length>0&&<span style={{marginLeft:"6px",fontSize:"8px",color:"#c4605a",border:"1px solid rgba(200,60,60,0.4)",borderRadius:"8px",padding:"1px 5px"}}>{activeRevolts.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* ── REVOLTS PANEL ── */}
+      {panel==="revolts" && (
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
+            <div>
+              <div style={{fontSize:"9px",letterSpacing:"4px",color:"#c4605a",textTransform:"uppercase",marginBottom:"3px"}}>Active Revolts — {activeRevolts.length}</div>
+              <div style={{fontSize:"10px",color:DIM}}>Unresolved revolts raise agitation by 1 each turn until suppressed.</div>
+            </div>
+            <button onClick={()=>setShowRevForm(f=>!f)}
+              style={{padding:"6px 16px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",
+                textTransform:"uppercase",borderRadius:"4px",
+                background:showRevForm?"rgba(200,60,60,0.15)":"rgba(255,255,255,0.03)",
+                border:`1px solid ${showRevForm?"rgba(200,60,60,0.4)":"rgba(255,255,255,0.1)"}`,
+                color:showRevForm?"#c4605a":DIM}}>
+              {showRevForm?"Cancel":"+ Spawn Revolt"}
+            </button>
+          </div>
+
+          {/* Revolt form */}
+          {showRevForm && (
+            <div style={{marginBottom:"16px",padding:"14px",background:"rgba(200,60,60,0.04)",border:"1px solid rgba(200,60,60,0.2)",borderRadius:"5px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:"8px",marginBottom:"10px"}}>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Region</div>
+                  <select value={revForm.regionIdx} onChange={e=>setRevForm(p=>({...p,regionIdx:Number(e.target.value)}))} style={{...S_inp,width:"100%"}}>
+                    {REGIONS.map((r,i)=><option key={i} value={i}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Class</div>
+                  <select value={revForm.classIdx} onChange={e=>setRevForm(p=>({...p,classIdx:Number(e.target.value)}))} style={{...S_inp,width:"100%"}}>
+                    {CLASSES.map((c,i)=><option key={i} value={i}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Strength (1–6)</div>
+                  <div style={{display:"flex",gap:"4px",alignItems:"center"}}>
+                    <AdjBtn onClick={()=>setRevForm(p=>({...p,strength:Math.max(1,p.strength-1)}))} red>-</AdjBtn>
+                    <span style={{fontSize:"16px",color:"#c4605a",flex:1,textAlign:"center"}}>{revForm.strength}</span>
+                    <AdjBtn onClick={()=>setRevForm(p=>({...p,strength:Math.min(6,p.strength+1)}))}>+</AdjBtn>
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Cause</div>
+                  <select value={revForm.cause} onChange={e=>setRevForm(p=>({...p,cause:Number(e.target.value)}))} style={{...S_inp,width:"100%"}}>
+                    {REVOLT_CAUSES.map((c,i)=><option key={i} value={i}>{c.split("—")[0].trim()}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{fontSize:"10px",color:DIM,fontStyle:"italic",marginBottom:"10px",padding:"6px 8px",background:"rgba(255,255,255,0.02)",borderRadius:"3px"}}>
+                "{REVOLT_CAUSES[revForm.cause]}"
+              </div>
+              <button onClick={addRevolt} style={{padding:"6px 18px",cursor:"pointer",background:"rgba(200,60,60,0.15)",border:"1px solid rgba(200,60,60,0.4)",borderRadius:"4px",color:"#c4605a",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase"}}>
+                Spawn Revolt
+              </button>
+            </div>
+          )}
+
+          {/* Active revolts */}
+          {activeRevolts.length===0 && !showRevForm && (
+            <div style={{textAlign:"center",padding:"30px",color:DIM,fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.05)",borderRadius:"5px"}}>
+              No active revolts
+            </div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+            {activeRevolts.map(r => {
+              const ph  = revoltPhase(r.strength);
+              const reg = REGIONS[r.regionIdx];
+              const cls = CLASSES[r.classIdx];
+              const myPms = (paramilitaries||[]).filter(p=>p.regionIdx===r.regionIdx);
+              const armyHere = deployedIdx.has(r.regionIdx);
+              return (
+                <div key={r.id} style={{padding:"12px 14px",background:ph.bg,border:`1px solid ${ph.color}44`,borderLeft:`4px solid ${ph.color}`,borderRadius:"5px"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:"10px",marginBottom:"10px",flexWrap:"wrap"}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px",flexWrap:"wrap"}}>
+                        <span style={{fontSize:"13px",color:"#e8dcc8"}}>{reg}</span>
+                        <span style={{fontSize:"9px",color:CLASS_COLORS[r.classIdx],border:`1px solid ${CLASS_COLORS[r.classIdx]}44`,borderRadius:"3px",padding:"1px 6px"}}>{cls}</span>
+                        <span style={{fontSize:"9px",color:ph.color,border:`1px solid ${ph.color}44`,borderRadius:"3px",padding:"1px 6px",letterSpacing:"1px"}}>{ph.label}</span>
+                        <span style={{fontSize:"9px",color:DIM}}>T{r.turn}</span>
+                      </div>
+                      <div style={{fontSize:"10px",color:DIM,fontStyle:"italic",marginBottom:"6px"}}>"{r.cause}"</div>
+                      {/* Strength bar */}
+                      <div style={{display:"flex",gap:"3px",marginBottom:"4px"}}>
+                        {Array.from({length:6},(_,i)=>(
+                          <div key={i} style={{width:"20px",height:"8px",borderRadius:"2px",background:i<r.strength?ph.color:"rgba(255,255,255,0.07)"}}/>
+                        ))}
+                        <span style={{fontSize:"10px",color:ph.color,marginLeft:"5px",fontWeight:"bold"}}>Str {r.strength}</span>
+                      </div>
+                    </div>
+                    <button onClick={()=>removeRevolt(r.id)} style={{background:"none",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:DIM,cursor:"pointer",fontSize:"10px",padding:"2px 7px",flexShrink:0}}>×</button>
+                  </div>
+
+                  {/* Suppression options */}
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"6px"}}>Suppression</div>
+                  <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                    {armyHere && (
+                      <button onClick={()=>suppress(r.id,"army")}
+                        style={{padding:"5px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"1px",
+                          background:"rgba(196,122,90,0.15)",border:"1px solid rgba(196,122,90,0.4)",borderRadius:"3px",color:"#c47a5a"}}>
+                        ⚔ Army (−{Math.min(r.strength,army.morale||1)} str)
+                      </button>
+                    )}
+                    {myPms.map(pm=>(
+                      <button key={pm.id} onClick={()=>suppress(r.id,"pm",pm.id)}
+                        style={{padding:"5px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"1px",
+                          background:"rgba(155,127,186,0.12)",border:"1px solid rgba(155,127,186,0.3)",borderRadius:"3px",
+                          color:pm.type==="police"?"#7ab0d0":"#9b7fba"}}>
+                        {pm.type==="police"?"🔒":"🗡"} {pm.name} (−{Math.min(r.strength,pm.strength)})
+                      </button>
+                    ))}
+                    <button onClick={()=>suppress(r.id,"police")}
+                      style={{padding:"5px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"1px",
+                        background:"rgba(74,154,106,0.08)",border:"1px solid rgba(74,154,106,0.25)",borderRadius:"3px",color:"#6db87a"}}>
+                      Negotiate (−1 str)
+                    </button>
+                    {!armyHere && (
+                      <button onClick={()=>deployArmy(r.regionIdx)}
+                        style={{padding:"5px 12px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"1px",
+                          background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"3px",color:SOFT}}>
+                        Deploy Army Here
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Crushed revolts log */}
+          {crushed.length>0 && (
+            <div style={{marginTop:"20px"}}>
+              <div style={{fontSize:"8px",color:DIM,letterSpacing:"3px",textTransform:"uppercase",marginBottom:"8px"}}>Suppressed Revolts</div>
+              <div style={{display:"flex",flexDirection:"column",gap:"3px"}}>
+                {crushed.map(r=>(
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:"8px",padding:"5px 10px",background:"rgba(255,255,255,0.01)",border:"1px solid rgba(255,255,255,0.05)",borderLeft:"3px solid #6db87a",borderRadius:"3px",opacity:.7}}>
+                    <span style={{fontSize:"10px",color:"#6db87a",flexShrink:0}}>✓</span>
+                    <span style={{fontSize:"10px",color:SOFT,flex:1}}>{REGIONS[r.regionIdx]} — {CLASSES[r.classIdx]}</span>
+                    <span style={{fontSize:"9px",color:DIM}}>T{r.turn}</span>
+                    <button onClick={()=>removeRevolt(r.id)} style={{background:"none",border:"none",color:DIM,cursor:"pointer",fontSize:"10px"}}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ROYAL ARMY PANEL ── */}
+      {panel==="army" && (
+        <div>
+          <div style={{marginBottom:"20px",padding:"16px",background:"rgba(196,122,90,0.05)",border:"1px solid rgba(196,122,90,0.2)",borderRadius:"5px"}}>
+            <div style={{fontSize:"9px",letterSpacing:"4px",color:"#c47a5a",textTransform:"uppercase",marginBottom:"12px"}}>Royal Army of Azzuria</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:"8px",marginBottom:"14px"}}>
+              {[
+                {label:"Strength",key:"strength",lo:0,hi:10,color:"#c47a5a",hint:"Combat power"},
+                {label:"Morale",  key:"morale",  lo:1,hi:5, color:"#c9a84c",hint:"Suppression per action"},
+              ].map(s=>(
+                <div key={s.key} style={{padding:"10px",background:"rgba(0,0,0,0.2)",borderRadius:"4px",textAlign:"center"}}>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",textTransform:"uppercase",marginBottom:"6px"}}>{s.label}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:"5px",justifyContent:"center",marginBottom:"4px"}}>
+                    <AdjBtn onClick={()=>adjArmy(s.key,-1,s.lo,s.hi)} red>-</AdjBtn>
+                    <span style={{fontSize:"22px",color:s.color,fontFamily:"Georgia,serif",minWidth:"28px",textAlign:"center"}}>{army[s.key]||0}</span>
+                    <AdjBtn onClick={()=>adjArmy(s.key,+1,s.lo,s.hi)}>+</AdjBtn>
+                  </div>
+                  <div style={{fontSize:"8px",color:DIM}}>{s.hint}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Morale bar */}
+            <div style={{marginBottom:"10px"}}>
+              <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px"}}>ARMY MORALE</div>
+              <div style={{display:"flex",gap:"3px"}}>
+                {Array.from({length:5},(_,i)=>(
+                  <div key={i} style={{flex:1,height:"6px",borderRadius:"2px",background:i<(army.morale||3)?"#c9a84c":"rgba(255,255,255,0.08)"}}/>
+                ))}
+              </div>
+            </div>
+
+            <div style={{fontSize:"10px",color:DIM,lineHeight:"1.7"}}>
+              Strength = combat power in wars. Morale = how much revolt strength is reduced per army suppression action. Deploying to suppress revolts costs 1 morale. Morale recovers by 1 each turn automatically.
+            </div>
+          </div>
+
+          {/* Region deployment map */}
+          <div style={{marginBottom:"8px",fontSize:"9px",letterSpacing:"3px",color:DIM,textTransform:"uppercase"}}>Regional Deployment — Click to toggle</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:"5px"}}>
+            {REGIONS.map((r,i)=>{
+              const here  = deployedIdx.has(i);
+              const rData = (revolts||[]).filter(rv=>rv.regionIdx===i&&!rv.suppressed);
+              return (
+                <div key={r} onClick={()=>deployArmy(i)}
+                  style={{padding:"8px 10px",cursor:"pointer",borderRadius:"4px",
+                    background:here?"rgba(196,122,90,0.1)":"rgba(255,255,255,0.02)",
+                    border:`1px solid ${here?"rgba(196,122,90,0.4)":"rgba(255,255,255,0.07)"}`,
+                    transition:"all 0.15s"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"6px",marginBottom:"2px"}}>
+                    {here&&<span style={{fontSize:"10px"}}>⚔</span>}
+                    <span style={{fontSize:"11px",color:here?"#c47a5a":"#e8dcc8"}}>{r}</span>
+                  </div>
+                  {rData.length>0&&<span style={{fontSize:"8px",color:"#c4605a"}}>{rData.length} revolt{rData.length>1?"s":""}</span>}
+                  {here&&<div style={{fontSize:"8px",color:"#c47a5a",letterSpacing:"1px"}}>DEPLOYED</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Army morale auto-recovery note */}
+          <div style={{marginTop:"14px",padding:"8px 12px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"4px",fontSize:"10px",color:DIM,lineHeight:"1.7"}}>
+            <strong style={{color:SOFT}}>End of Turn:</strong> Army morale recovers +1 automatically (up to max 5). Unsuppressed revolts each raise their class's agitation by +1.
+          </div>
+        </div>
+      )}
+
+      {/* ── PARAMILITARIES / POLICE PANEL ── */}
+      {panel==="paramilitaries" && (
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
+            <div>
+              <div style={{fontSize:"9px",letterSpacing:"4px",color:"#9b7fba",textTransform:"uppercase",marginBottom:"3px"}}>Political Factions & Police</div>
+              <div style={{fontSize:"10px",color:DIM}}>Paramilitaries are tied to parties. Police are Crown instruments. Both can suppress revolts in their region.</div>
+            </div>
+            <button onClick={()=>setShowPmForm(f=>!f)}
+              style={{padding:"6px 16px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",
+                textTransform:"uppercase",borderRadius:"4px",
+                background:showPmForm?"rgba(155,127,186,0.15)":"rgba(255,255,255,0.03)",
+                border:`1px solid ${showPmForm?"rgba(155,127,186,0.4)":"rgba(255,255,255,0.1)"}`,
+                color:showPmForm?"#9b7fba":DIM}}>
+              {showPmForm?"Cancel":"+ Add Faction"}
+            </button>
+          </div>
+
+          {showPmForm && (
+            <div style={{marginBottom:"16px",padding:"14px",background:"rgba(155,127,186,0.04)",border:"1px solid rgba(155,127,186,0.2)",borderRadius:"5px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"8px",marginBottom:"10px"}}>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Name</div>
+                  <input value={pmForm.name} onChange={e=>setPmForm(p=>({...p,name:e.target.value}))}
+                    placeholder="e.g. Fasci dei Lavoratori" style={{...S_inp,width:"100%"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Type</div>
+                  <div style={{display:"flex",gap:"4px"}}>
+                    {[["paramilitary","🗡 Paramilitary"],["police","🔒 Police"]].map(([v,l])=>(
+                      <button key={v} onClick={()=>setPmForm(p=>({...p,type:v}))}
+                        style={{flex:1,padding:"5px",cursor:"pointer",fontSize:"9px",borderRadius:"3px",
+                          background:pmForm.type===v?"rgba(155,127,186,0.2)":"rgba(255,255,255,0.02)",
+                          border:`1px solid ${pmForm.type===v?"rgba(155,127,186,0.4)":"rgba(255,255,255,0.08)"}`,
+                          color:pmForm.type===v?"#9b7fba":DIM}}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Party</div>
+                  <select value={pmForm.partyId} onChange={e=>setPmForm(p=>({...p,partyId:e.target.value}))} style={{...S_inp,width:"100%"}}>
+                    <option value="">Crown / Independent</option>
+                    {candidates.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Region</div>
+                  <select value={pmForm.regionIdx} onChange={e=>setPmForm(p=>({...p,regionIdx:Number(e.target.value)}))} style={{...S_inp,width:"100%"}}>
+                    {REGIONS.map((r,i)=><option key={i} value={i}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:"8px",color:DIM,letterSpacing:"2px",marginBottom:"4px",textTransform:"uppercase"}}>Strength (1–5)</div>
+                  <div style={{display:"flex",gap:"4px",alignItems:"center"}}>
+                    <AdjBtn onClick={()=>setPmForm(p=>({...p,strength:Math.max(1,p.strength-1)}))} red>-</AdjBtn>
+                    <span style={{fontSize:"16px",color:"#9b7fba",flex:1,textAlign:"center"}}>{pmForm.strength}</span>
+                    <AdjBtn onClick={()=>setPmForm(p=>({...p,strength:Math.min(5,p.strength+1)}))}>+</AdjBtn>
+                  </div>
+                </div>
+              </div>
+              <button onClick={addPm} disabled={!pmForm.name.trim()}
+                style={{padding:"6px 18px",cursor:"pointer",background:"rgba(155,127,186,0.15)",border:"1px solid rgba(155,127,186,0.4)",
+                  borderRadius:"4px",color:"#9b7fba",fontFamily:"Georgia,serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",
+                  opacity:!pmForm.name.trim()?.4:1}}>
+                Add Faction
+              </button>
+            </div>
+          )}
+
+          {(paramilitaries||[]).length===0 && !showPmForm && (
+            <div style={{textAlign:"center",padding:"30px",color:DIM,fontSize:"10px",letterSpacing:"3px",textTransform:"uppercase",border:"1px dashed rgba(255,255,255,0.05)",borderRadius:"5px"}}>
+              No factions registered
+            </div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+            {(paramilitaries||[]).map(pm=>{
+              const party = pm.partyId ? candidates.find(c=>String(c.id)===String(pm.partyId)) : null;
+              const isPolice = pm.type==="police";
+              const acol = isPolice?"#7ab0d0":"#9b7fba";
+              const activeHere = activeRevolts.filter(r=>r.regionIdx===pm.regionIdx);
+              return (
+                <div key={pm.id} style={{padding:"10px 14px",background:"rgba(255,255,255,0.02)",
+                  border:`1px solid ${acol}33`,borderLeft:`3px solid ${acol}`,borderRadius:"4px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                    <span style={{fontSize:"10px",color:acol}}>{isPolice?"🔒":"🗡"}</span>
+                    <span style={{fontSize:"13px",color:"#e8dcc8",flex:1}}>{pm.name}</span>
+                    {party&&<div style={{display:"flex",alignItems:"center",gap:"4px"}}><div style={{width:6,height:6,borderRadius:"50%",background:party.color}}/><span style={{fontSize:"9px",color:party.color}}>{party.name}</span></div>}
+                    <span style={{fontSize:"9px",color:DIM,border:"1px solid rgba(255,255,255,0.08)",borderRadius:"3px",padding:"1px 6px"}}>{REGIONS[pm.regionIdx]}</span>
+                    <div style={{display:"flex",gap:"3px",alignItems:"center"}}>
+                      <AdjBtn onClick={()=>adjPm(pm.id,-1)} red>-</AdjBtn>
+                      <div style={{display:"flex",gap:"2px"}}>
+                        {Array.from({length:5},(_,i)=>(
+                          <div key={i} style={{width:"8px",height:"8px",borderRadius:"2px",background:i<pm.strength?acol:"rgba(255,255,255,0.08)"}}/>
+                        ))}
+                      </div>
+                      <AdjBtn onClick={()=>adjPm(pm.id,+1)}>+</AdjBtn>
+                    </div>
+                    <button onClick={()=>removePm(pm.id)} style={{background:"none",border:"1px solid rgba(200,80,60,0.2)",borderRadius:"3px",color:"#c4605a",cursor:"pointer",fontSize:"10px",padding:"2px 6px"}}>×</button>
+                  </div>
+                  {activeHere.length>0&&(
+                    <div style={{marginTop:"6px",fontSize:"9px",color:"#c4605a"}}>
+                      ⚠ {activeHere.length} revolt{activeHere.length>1?"s":""} active in this region — can suppress from Revolts tab
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Design note */}
+          <div style={{marginTop:"20px",padding:"12px 14px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"4px",fontSize:"10px",color:DIM,lineHeight:"1.8"}}>
+            <strong style={{color:SOFT}}>Design:</strong> Paramilitary factions belong to parties and can be deployed to suppress revolts or intimidate rivals. Military police are Crown instruments — effective but politically costly if overused. Strength depletes with use and recovers by 1 per turn.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 function App() {
@@ -5250,7 +5775,7 @@ function App() {
   const [agitation,    setAgitation]    = useState(Array(8).fill(0));
   const [turn,         setTurn]         = useState(1);
   const [senateHolder, setSenateHolder] = useState(null);
-  const [government,     setGovernment]     = useState({pm:null,interior:null,finance:null,war:null,church:null,justice:null,foreign:null,education:null,decrees:[]});
+  const [government,     setGovernment]     = useState({pm:null,interior:null,finance:null,war:null,church:null,justice:null,foreign:null,education:null,decrees:[],coalition:null});
   const [pendingParties, setPendingParties] = useState([]);
   const [nations,        setNations]        = useState([]);
   const [pendingNations, setPendingNations] = useState([]);
@@ -5262,6 +5787,9 @@ function App() {
   const [coalitions,      setCoalitions]      = useState([]); // [{id, name, color, memberIds:[]}]
   const [turnLog,        setTurnLog]        = useState([]);  // [{turn, season, year, events:[string]}]
   const [regionDescs,  setRegionDescs]  = useState(REGION_DATA.map(r => r.desc));
+  const [revolts,      setRevolts]      = useState([]);
+  const [paramilitaries,setParamilitaries]=useState([]);
+  const [azzuriaArmy,  setAzzuriaArmy]  = useState({strength:3,morale:3,deployed:[]});
   const [syncStatus,   setSyncStatus]   = useState("idle");
   const [binId,        setBinId]        = useState(typeof JSONBIN_BIN_ID !== "undefined" ? JSONBIN_BIN_ID : "");
   const saveTimer = useRef(null);
@@ -5297,6 +5825,9 @@ function App() {
           if (s.electionHistory)  setElectionHistory(s.electionHistory);
           if (s.coalitions)       setCoalitions(s.coalitions);
           if (s.regionDescs)     setRegionDescs(s.regionDescs);
+          if (s.revolts)        setRevolts(s.revolts);
+          if (s.paramilitaries) setParamilitaries(s.paramilitaries);
+          if (s.azzuriaArmy)    setAzzuriaArmy(s.azzuriaArmy);
         }
       } catch(e) { /* no saved state, use defaults */ }
       setLoaded(true);
@@ -5308,20 +5839,14 @@ function App() {
     if (!loaded) return;
     const t = setInterval(async () => {
       try {
-        const res = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
+        const res  = await fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
           headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
         });
         const d = await res.json();
-        if (d.record && Array.isArray(d.record.pendingParties)) {
-          // Only ADD parties we don't already know about locally.
-          // Never remove from local state here — removals happen explicitly on approve/deny.
-          // This prevents approved parties from reappearing after the next poll.
-          setPendingParties(prev => {
-            const localIds    = new Set(prev.map(p => p.id));
-            const approvedIds = new Set((candidates||[]).map(c => c.id));
-            const incoming    = d.record.pendingParties.filter(p => !localIds.has(p.id) && !approvedIds.has(p.id));
-            return incoming.length ? [...prev, ...incoming] : prev;
-          });
+        if (d.record && d.record.pendingParties) {
+          // Filter out any party that's already been approved (exists in candidates)
+          const approvedIds = new Set((candidates||[]).map(c=>c.id));
+          setPendingParties(d.record.pendingParties.filter(p=>!approvedIds.has(p.id)));
         }
       } catch(e) {}
     }, 10000);
@@ -5356,16 +5881,12 @@ function App() {
               headers:{"X-Access-Key":JSONBIN_ACCESS_KEY,"Cache-Control":"no-cache"}, cache:"no-store"
             });
             const pd = await pr.json();
-            // Only pull in brand-new pending parties from remote that aren't in local state
-            // and haven't already been approved. Do NOT merge back parties we've removed.
             if (pd.record && Array.isArray(pd.record.pendingParties)) {
               const localIds    = new Set(pendingParties.map(p => p.id));
               const approvedIds = new Set((candidates||[]).map(c => c.id));
-              const newOnes     = pd.record.pendingParties.filter(p => !localIds.has(p.id) && !approvedIds.has(p.id));
-              if (newOnes.length) {
-                livePending = [...pendingParties, ...newOnes];
-                setPendingParties(livePending);
-              }
+              const merged      = [...pendingParties, ...pd.record.pendingParties.filter(p => !localIds.has(p.id) && !approvedIds.has(p.id))];
+              livePending = merged;
+              if (merged.length !== pendingParties.length) setPendingParties(merged);
             }
             if (pd.record && Array.isArray(pd.record.pendingNations)) {
               const localNIds = new Set(pendingNations.map(n => n.id));
@@ -5377,7 +5898,7 @@ function App() {
         const state = { turn, agitation, candidates, data, senateHolder, government,
           pendingParties: livePending, nations, pendingNations,
           wars, deals, randomEventDeck, electionHistory: savedHistory,
-          coalitions, regionDescs, savedAt: Date.now() };
+          coalitions, regionDescs, revolts, paramilitaries, azzuriaArmy, savedAt: Date.now() };
         const json = JSON.stringify(state);
         localStorage.setItem("azzuria-gamestate", json);
         if (window.location.protocol !== "file:") {
@@ -5388,7 +5909,7 @@ function App() {
         setTimeout(() => setSyncStatus("idle"), 2000);
       } catch(e) { setSyncStatus("error"); }
     }, 800);
-  }, [turn, agitation, candidates, data, loaded, nations, wars, deals, randomEventDeck, coalitions, regionDescs]);
+  }, [turn, agitation, candidates, data, loaded, nations, wars, deals, randomEventDeck, coalitions, regionDescs, revolts, paramilitaries, azzuriaArmy]);
 
   const syncDot = {
     idle:   { color:"#5a4a30", label:"" },
@@ -5454,15 +5975,16 @@ function App() {
       )}
       {/* Index: 9=Home 0=Turn 1=Parties 2=Candidates 3=Regions 4=Influence 5=Election 6=Laws 7=Government 8=Nations */}
       {tab===9 && <HomeTab turn={turn} natUnrest={natUnrest} agitation={agitation} candidates={candidates} data={data} government={government} nations={nations} wars={wars} deals={deals} electionHistory={electionHistory} senateHolder={senateHolder} coalitions={coalitions}/>}
-      {tab===0 && <GameStateTab agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} turn={turn} setTurn={setTurn} candidates={candidates} setCandidates={setCandidates} senateHolder={senateHolder} nations={nations} setNations={setNations} government={government} wars={wars} setWars={setWars} deals={deals} setDeals={setDeals} gmEvents={gmEvents} setGmEvents={setGmEvents} randomEventDeck={randomEventDeck} turnLog={turnLog} setTurnLog={setTurnLog}/>}
-      {tab===1 && <PartyRegistry candidates={candidates} setCandidates={setCandidates} data={data} agitation={agitation} natUnrest={natUnrest} government={government} coalitions={coalitions} setCoalitions={setCoalitions} electionHistory={electionHistory}/>}
-      {tab===2 && <CandidatesTab data={data} setData={setData} candidates={candidates} setCandidates={setCandidates} activeCand={activeCand} setActiveCand={setActiveCand} agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} pendingParties={pendingParties} setPendingParties={setPendingParties}/>}
-      {tab===3 && <RegionsTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest}/>}
+      {tab===0 && <GameStateTab agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} turn={turn} setTurn={setTurn} candidates={candidates} setCandidates={setCandidates} senateHolder={senateHolder} nations={nations} setNations={setNations} government={government} setGovernment={setGovernment} setData={setData} wars={wars} setWars={setWars} deals={deals} setDeals={setDeals} gmEvents={gmEvents} setGmEvents={setGmEvents} randomEventDeck={randomEventDeck} turnLog={turnLog} setTurnLog={setTurnLog} coalitions={coalitions} revolts={revolts} setRevolts={setRevolts} setAzzuriaArmy={setAzzuriaArmy} setParamilitaries={setParamilitaries}/>}
+      {tab===1 && <PartyRegistry candidates={candidates} setCandidates={setCandidates} data={data} agitation={agitation} natUnrest={natUnrest} government={government} turn={turn} coalitions={coalitions} setCoalitions={setCoalitions} electionHistory={electionHistory}/>}
+      {tab===2 && <CandidatesTab data={data} setData={setData} candidates={candidates} setCandidates={setCandidates} activeCand={activeCand} setActiveCand={setActiveCand} agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} tariffs={government.tariffs||0} turn={turn} pendingParties={pendingParties} setPendingParties={setPendingParties}/>}
+      {tab===3 && <RegionsTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} regionDescs={regionDescs} setRegionDescs={setRegionDescs} tariffs={government.tariffs||0} turn={turn}/>}
       {tab===4 && <InfluenceTab data={data} setData={setData}/>}
-      {tab===5 && <ElectionTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} turn={turn} senateHolder={senateHolder} setSenateHolder={setSenateHolder} onSaveElection={handleSaveElection} electionHistory={electionHistory}/>}
+      {tab===5 && <ElectionTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} tariffs={government.tariffs||0} turn={turn} senateHolder={senateHolder} setSenateHolder={setSenateHolder} onSaveElection={handleSaveElection} electionHistory={electionHistory}/>}
       {tab===6 && <LawRegistryTab candidates={candidates} government={government}/>}
       {tab===7 && <GovernmentTab candidates={candidates} government={government} setGovernment={setGovernment} setData={setData} turn={turn} agitation={agitation} setAgitation={setAgitation} nations={nations} setNations={setNations} wars={wars} setWars={setWars} deals={deals} setDeals={setDeals}/>}
       {tab===8 && <NationsTab nations={nations} setNations={setNations} pendingNations={pendingNations} setPendingNations={setPendingNations} wars={wars} setWars={setWars} deals={deals} setDeals={setDeals} gmEvents={gmEvents} setGmEvents={setGmEvents} randomEventDeck={randomEventDeck} setRandomEventDeck={setRandomEventDeck} turnLog={turnLog}/>}
+      {tab===10 && <MilitaryTab revolts={revolts} setRevolts={setRevolts} paramilitaries={paramilitaries} setParamilitaries={setParamilitaries} azzuriaArmy={azzuriaArmy} setAzzuriaArmy={setAzzuriaArmy} agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} candidates={candidates} government={government} turn={turn}/>}
     </div>
   );
 }
