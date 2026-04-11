@@ -4125,6 +4125,34 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
       return n;
     });
   };
+  const pasteParty = () => {
+    // Извлекаем нужные поля из входящего объекта data
+    let data = JSON.parse(prompt('paste data of party'))
+    const { 
+      id, 
+      color, 
+      name, 
+      regions, 
+      classBase, 
+      tags 
+    } = data;
+
+    const np = {
+      id,
+      name: name || "New Party", // Используем имя из данных или дефолтное
+      color: color || "#ffffff",
+      laws: [],
+      actions: [],
+      actionsLeft: BASE_ACTIONS,
+      classBase: classBase || [],
+      regionBase: regions || [], // Массив ID регионов из входных данных
+      tags: tags || [],          // Сохраняем тэги (Public Works и т.д.)
+      submittedAt: data.submittedAt
+    };
+
+    setCandidates(p => [...p, np]);
+    setSel(id);
+  };
 
   const pops = cand ? calcPopularity(cand, data, agitation, natUnrest, government?.tariffs||0, turn, candidates) : [];
   const totalPop = pops.reduce((a,b)=>a+b, 0);
@@ -4166,6 +4194,12 @@ function PartyRegistry({candidates, setCandidates, data, agitation, natUnrest, g
             letterSpacing:"2px",textTransform:"uppercase",borderRadius:"4px",
             background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",color:DIM}}>
           + New
+        </button>
+        <button onClick={pasteParty}
+          style={{padding:"6px 14px",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:"10px",
+            letterSpacing:"2px",textTransform:"uppercase",borderRadius:"4px",
+            background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",color:DIM}}>
+          + Paste
         </button>
       </div>
 
