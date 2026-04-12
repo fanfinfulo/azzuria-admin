@@ -324,65 +324,73 @@ const popPct = (v) => v <= 0 ? 0 : Math.min(100, Math.round(v / POP_SCALE * 100)
 const calcPopularity = (cand, data, agitation, natUnrest, tariffs, currentTurn, allCandidates) =>
   REGIONS.map((_, rIdx) => {
     let score = 0;
-    // Literacy capped at 3 for mechanical effect; display system still shows 1-5
-    const lit  = Math.min(3, litLevel(data, rIdx).n);
     const base = cand.classBase || [];
-
+    const regionBase = cand.regionBase || [];
+    const litData = litLevel(data, rIdx);
+    
+    // === ЗАКОНЫ ===
+    // Популярность закона = (влияние_класса * 1.25 если выбран, иначе как есть) / 2 - влияние_антагониста / 4
+    // Применить коэффициент затухания
     cand.laws.forEach(law => {
-      // Laws: full strength first 4 turns, then 10%/turn decay, hard expire at T+12
-      // This forces re-legislation and keeps the policy game active across a campaign
-      const age = currentTurn ? Math.max(0, currentTurn - (law.enactedTurn || 1)) : 0;
-      if (age >= 12) return; // expired — zero contribution
-      const decay = age <= 4 ? 1.0 : Math.max(0, 1 - (age - 4) * 0.10);
-
+      const lawAge = currentTurn ? Math.max(0, currentTurn - (law.enactedTurn || 1)) : 0;
+      
+      // Коэффициент затухания: 1 для первых 3 ходов, затем −10% за каждый следующий ход
+      const decayBonus = lawAge <= 3 ? 1 : Math.max(0, 1 - (lawAge - 3) * 0.10);
+      
       law.effects.forEach(({classIdx, type}) => {
-        const inf  = data[classIdx][rIdx];
-        const mult = base.includes(classIdx) ? 1.25 : 1;
-        if (type === "bonus") score += (inf / 2) * mult * decay;
-        if (type === "malus") score -= (inf / 4) * mult * decay;
+        const inf = data[classIdx][rIdx];
+        const chosenMult = base.includes(classIdx) ? 1.25 : 1;
+        const classValue = (inf * chosenMult) / 2;
+        
         const ant = ANTAGONISTS[classIdx];
-        if (ant !== undefined) {
-          const antInf  = data[ant][rIdx];
-          const antMult = base.includes(ant) ? 1.25 : 1;
-          if (type === "bonus") score -= (antInf / 4) * antMult * decay;
-          if (type === "malus") score += (antInf / 8) * antMult * decay;
-        }
+        const antValue = ant !== undefined ? (data[ant][rIdx] / 4) : 0;
+        
+        let lawPopularity = classValue - antValue;
+        
+        // Применить коэффициент затухания
+        lawPopularity *= decayBonus;
+        
+        if (type === "malus") lawPopularity *= -1;
+        
+        score += lawPopularity;
       });
     });
-
-    // Campaign actions: slow decay (8%/turn, floor 20%) — regional outpost building
-    // Deliberately slower than laws: actions represent durable local presence
+    
+    // === ДЕЙСТВИЯ ===
+    // Популярность действия = бонус_действия * грамотность_региона * коэф_затухания
+    // Грамотность ограничена максимум на 3 для механических целей
+    // Применить коэффициент затухания: 1 для первых 3 ходов, затем −10% за каждый следующий ход
+    const litCapped = Math.min(3, litData.n);
     (cand.actions || []).filter(a => !a.negative).forEach(a => {
-      const age   = currentTurn ? Math.max(0, currentTurn - (a.addedTurn || 1)) : 0;
-      const decay = Math.max(0.20, 1 - age * 0.08);
-      score += (a.bonuses[rIdx] || 0) * lit * decay;
+      const actionAge = currentTurn ? Math.max(0, currentTurn - (a.addedTurn || 1)) : 0;
+      const decayBonus = actionAge <= 3 ? 1 : Math.max(0, 1 - (actionAge - 3) * 0.10);
+      
+      score += (a.bonuses[rIdx] || 0) * litCapped * decayBonus;
     });
-
-    // Incoming negative actions from other parties targeting this candidate
+    
+    // === ВХОДЯЩИЕ ОТРИЦАТЕЛЬНЫЕ ДЕЙСТВИЯ ===
     if (allCandidates) {
       allCandidates.filter(c => c.id !== cand.id).forEach(attacker => {
         (attacker.actions || []).filter(a => a.negative && a.targetPartyId === cand.id).forEach(a => {
-          const age   = currentTurn ? Math.max(0, currentTurn - (a.addedTurn || 1)) : 0;
-          const decay = Math.max(0.20, 1 - age * 0.08);
-          score -= (a.bonuses[rIdx] || 0) * lit * decay;
+          const actionAge = currentTurn ? Math.max(0, currentTurn - (a.addedTurn || 1)) : 0;
+          const decayBonus = actionAge <= 3 ? 1 : Math.max(0, 1 - (actionAge - 3) * 0.10);
+          
+          score -= (a.bonuses[rIdx] || 0) * litCapped * decayBonus;
         });
       });
     }
 
-    // Home region: 25% multiplier on existing positive score
-    const regionBase = cand.regionBase || [];
-    if (regionBase.includes(rIdx) && score > 0) score *= 1.25;
-
-    // Tariff: scaled by regional class influence
-    if (tariffs) {
-      if (base.includes(2)) score += tariffs * (data[2][rIdx] / 10);
-      if (base.includes(3)) score += tariffs * (data[3][rIdx] / 10);
-      if (base.includes(6)) score -= tariffs * (data[6][rIdx] / 10);
-      if (base.includes(7)) score -= tariffs * (data[7][rIdx] / 10);
-    }
-
+    // === ВЛИЯНИЕ ЭКОНОМИЧЕСКОЙ СИТУАЦИИ ===
     const ur = unrestInfo(natUnrest);
     if (ur.label === "Volatile" || ur.label === "Crisis") score -= 2;
+    
+    // === РЕГИОНАЛЬНЫЙ МНОЖИТЕЛЬ ===
+    // Применить ×1.25 ко ВСЕМУ счёту если регион в региональной базе партии
+    // (только если счёт положительный)
+    if (regionBase.includes(rIdx) && score > 0) {
+      score *= 1.25;
+    }
+    
     return Math.round(score);
   });
 
@@ -3494,6 +3502,8 @@ const writeElectionsResult = (type, data, electionHistory, electionType, coaliti
 } 
 
   const runElection = () => {
+    console.log(candidates);
+    console.log(JSON.stringify(candidates));
     setChamberSaved(false);
     setRolling(true);
     setTimeout(() => {
@@ -3515,8 +3525,15 @@ const writeElectionsResult = (type, data, electionHistory, electionType, coaliti
       const collegeResults = COLLEGES.map((col, idx) => {
         const rIdx = col.r;
         const eligible = popByRegion.filter(({regionPop}) => regionPop[rIdx] >= REGION_THRESHOLD);
-        // If nobody qualifies, only the highest-pop party can win (uncontested region)
-        const pool = eligible.length > 0 ? eligible : [popByRegion.reduce((a,b) => b.regionPop[rIdx] > a.regionPop[rIdx] ? b : a)];
+        // If nobody qualifies, ALL parties with max popularity can win (uncontested region)
+        // This ensures fair distribution when everyone has 0 or low popularity
+        let pool;
+        if (eligible.length > 0) {
+          pool = eligible;
+        } else {
+          const maxPop = Math.max(...popByRegion.map(p => p.regionPop[rIdx]));
+          pool = popByRegion.filter(p => p.regionPop[rIdx] === maxPop);
+        }
         // Eligible parties: weight = BASE_WHEEL + pop. Non-eligible are not in the pool at all.
         const entries = pool.map(({c, regionPop}) => ({c, pop: regionPop[rIdx]}));
         const {winner, roll, total, weights} = wheelSpin(entries);
@@ -3557,7 +3574,14 @@ const writeElectionsResult = (type, data, electionHistory, electionType, coaliti
       const senColleges = REGIONS.flatMap((region, rIdx) =>
         Array.from({length: SENATE_SEATS_PER_REGION}, (_, sIdx) => {
           const eligible = pops.filter(({regionPop}) => regionPop[rIdx] >= REGION_THRESHOLD);
-          const pool = eligible.length > 0 ? eligible : [pops.reduce((a,b) => b.regionPop[rIdx] > a.regionPop[rIdx] ? b : a)];
+          // If nobody qualifies, ALL parties with max popularity can win
+          let pool;
+          if (eligible.length > 0) {
+            pool = eligible;
+          } else {
+            const maxPop = Math.max(...pops.map(p => p.regionPop[rIdx]));
+            pool = pops.filter(p => p.regionPop[rIdx] === maxPop);
+          }
           const entries = pool.map(({c, regionPop}) => ({c, pop: regionPop[rIdx]}));
           const {winner, roll, total, weights} = wheelSpin(entries);
           const rolls = weights.map(e => ({c: e.c, pop: e.pop, weight: e.weight, total, roll, isWinner: e.c.id === winner.c.id}));
