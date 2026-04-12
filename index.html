@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #1a1510; }
@@ -37,6 +38,76 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    const webhook = 'https://discord.com/api/webhooks/1492543792677650463/ShTQmCj62Ah10FfV2Nn_gZ4EuIh-EX8KbT5zZSNQEJK4vWkJzXu3MmjkaeivDvUInXCl'
+
+    
+  async function writeMessageInDiscord(inputText, isPing, imageBlob = null) {
+      if (!inputText) return;
+      let msg = isPing ? `|| <@794675642037567498> || 
+${inputText}` : `|| @everyone || sorry for ping 
+${inputText}`;
+
+      try {
+          if (imageBlob) {
+              // Send with image using FormData
+              const formData = new FormData();
+              formData.append('payload_json', JSON.stringify({
+                  content: msg,
+                  username: 'Events',
+                  avatar_url: 'https://kingdom-of-azzuria.github.io/ico.png'
+              }));
+              formData.append('file', imageBlob, 'parliament.png');
+
+              const response = await fetch(webhook, {
+                  method: 'POST',
+                  body: formData
+              });
+
+              if (response.ok) {
+                  console.log('Сообщение с изображением успешно отправлено');
+              } else {
+                  console.error('Ошибка при отправке:', response.statusText);
+              }
+          } else {
+              // Send text only
+              const payload = {
+                  content: msg,
+                  username: 'Events',
+                  avatar_url: 'https://kingdom-of-azzuria.github.io/ico.png'
+              };
+
+              const response = await fetch(webhook, {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify(payload)
+              });
+
+              if (response.ok) {
+                  console.log('Сообщение успешно отправлено');
+              } else {
+                  console.error('Ошибка при отправке:', response.statusText);
+              }
+          }
+      } catch (error) {
+          console.error('Сетевая ошибка:', error);
+      }
+  }
+
+    async function captureElections(element) {
+      const canvas = await html2canvas(element, {
+        backgroundColor: null, // прозрачный фон (если нужен)
+        scale: 2 // качество (важно!)
+      });
+
+      return new Promise(resolve => {
+        canvas.toBlob(blob => {
+          resolve(blob);
+        }, "image/png");
+      });
+    }
+  
     const codedKey = "U2FsdGVkX1+xICWPH1DtfGgrU33nJ5xxPTQ/GPBhbIv9XZVlmp6C3e10uFOd4rihTPjeMyxgcLyviKGZ0xFeGNQ05LUvsvoOe8JjcfarRuU="
 
     let password = ""
@@ -2216,7 +2287,39 @@ function LawRegistryTab({candidates, government}) {
 
 // ── PARLIAMENT SEMICIRCLE ─────────────────────────────────────────────────────
 function SemiParliament({seatTotals, cands, total=TOTAL_SEATS, majority=MAJORITY}) {
-  const sorted = [...(cands||[])].sort((a,b)=>(seatTotals[b.id]||0)-(seatTotals[a.id]||0));
+  const leftClasses = [6, 7];   // Rural Workers, Factory Workers
+  const rightClasses = [2, 4];  // Merchants, Church
+  const leftTags = ["Land Reform", "State Intervention", "Cooperative Labour", "Grain Price Controls", "Public Works", "Industrialisation", "Railway Expansion", "Secularism", "Anti-Clericalism", "Popular Education", "Press Freedom", "Workers' Rights", "Women's Education", "Poor Relief", "Temperance", "Public Health", "Parliamentary Reform", "Federalism", "Expanded Suffrage", "Universal Suffrage", "Republican Sympathies", "Progressive", "Reformist", "Internationalist", "Mediation", "Peaceful Coexistence", "Defensive Posture", "Diplomatic Primacy"];
+  const rightTags = ["Free Trade", "Fiscal Conservatism", "Private Property", "Laissez-faire", "Agrarianism", "Clericalism", "Social Order", "Tradition", "Civic Nationalism", "Cultural Revival", "National Unity", "Absolute Monarchy", "Property Suffrage", "Conservative", "Opportunist", "Reactionary", "Elitist", "Nationalist", "Militarist", "Expansionism", "Isolationism", "Revanchism", "Military Readiness", "Tributary Ambitions"];
+  
+  const getIdeologyScore = (party) => {
+    if (!party) return 0;
+    let score = 0;
+    
+    party.classBase?.forEach(classIdx => {
+      if (leftClasses.includes(classIdx)) score -= 2;
+      if (rightClasses.includes(classIdx)) score += 2;
+    });
+    
+    const partyTags = party.tags || [];
+    partyTags.forEach(tag => {
+      if (leftTags.includes(tag)) score -= 1;
+      if (rightTags.includes(tag)) score += 1;
+    });
+    
+    return score;
+  };
+
+  const sorted = [...(cands||[])].sort((a, b) => {
+    const scoreA = getIdeologyScore(a);
+    const scoreB = getIdeologyScore(b);
+    
+    if (scoreA !== scoreB) {
+      return scoreA - scoreB;
+    }
+    return (seatTotals[b.id] || 0) - (seatTotals[a.id] || 0);
+  });
+  
   const rowSeats=[28,34,41,48,53], rowR=[85,105,125,145,165];
   const W=360, H=200, cx=W/2, cy=H-16;
 
@@ -3257,7 +3360,7 @@ function GovernmentTab({candidates, government, setGovernment, setData, turn, ag
 
 // ── ELECTION TAB ──────────────────────────────────────────────────────────────
 
-function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, senateHolder, setSenateHolder, onSaveElection, electionHistory}) {
+function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, senateHolder, setSenateHolder, onSaveElection, onDeleteElection, electionHistory, coalitions}) {
   // Local roll state — intentionally resets between sessions (it's a roll, not persistent data)
   const [results,      setResults]      = useState(null);
   const [rolling,      setRolling]      = useState(false);
@@ -3271,6 +3374,124 @@ function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, sen
   const season = getSeason(turn);
   const year   = getYear(turn);
   const savedHistory = electionHistory || [];
+
+const writeElectionsResult = (type, data, electionHistory, electionType, coalitions, candidates, test) => {
+  console.log("writeElectionsResult called with:", {type, data, electionHistory, electionType, coalitions})
+  const filteredHistory = electionHistory && electionHistory.filter(e => e.type === electionType)
+  const lastElections = filteredHistory && filteredHistory.length > 0 ? filteredHistory[0] : null
+  
+  if (!data || !data.ranked) {
+    console.log("ERROR: data or data.ranked is missing")
+    return
+  }
+  
+  // Get total seats for majority calculation
+  const totalSeats = data.ranked.reduce((s, p) => s + (data.seatTotals[p.id] || 0), 0)
+  const majority = type === "Parliament" ? MAJORITY : SENATE_MAJORITY
+  const hasMajority = (data.seatTotals[data.ranked[0]?.id] || 0) >= majority
+  
+  let text = `# ${type} Elections - ${year} ${season}\n`
+  text += `The ${electionType === 'chamber' ? 'parliamentary' : 'senatorial'} election has concluded!\n\n`
+  text += `## Results\n`
+  
+  // Get coalition info
+  const coalitionMap = {}
+  ;(coalitions || []).forEach(coal => {
+    coal.memberIds.forEach(mid => {
+      coalitionMap[mid] = coal
+    })
+  })
+  
+  // Find candidate full info to get party name and id
+  const candidateMap = {}
+  ;(candidates || []).forEach(c => {
+    candidateMap[c.id] = c
+  })
+  
+  // Group parties by coalition
+  const partiesByCoalition = {}
+  const unaffiliated = []
+  
+  data.ranked.forEach(party => {
+    const seats = data.seatTotals[party.id] || 0
+    const fullCand = candidateMap[party.id]
+    const partyInfo = {
+      id: party.id,
+      name: fullCand?.name || party.name,
+      abbr: fullCand?.abbr || party.name.split(' ').map(w => w[0]).join(''),
+      color: party.color,
+      seats,
+      prevSeats: lastElections?.seatTotals[party.id],
+      fullCand
+    }
+    
+    const coal = coalitionMap[party.id]
+    if (coal) {
+      if (!partiesByCoalition[coal.id]) {
+        partiesByCoalition[coal.id] = { coal, parties: [] }
+      }
+      partiesByCoalition[coal.id].parties.push(partyInfo)
+    } else {
+      unaffiliated.push(partyInfo)
+    }
+  })
+  
+  // Build output by coalition
+  Object.values(partiesByCoalition).forEach(item => {
+    const { coal, parties } = item
+    const coalSeats = parties.reduce((s, p) => s + p.seats, 0)
+    const coalHasMajority = coalSeats >= majority
+    const coalEmoji = coalSeats > (lastElections?.seatTotals[item.coal?.memberIds?.[0]] || 0) ? ' <:IncreaseGood:1485892458427453530>' : coalSeats < (lastElections?.seatTotals[item.coal?.memberIds?.[0]] || 0) ? ' <:DecreaseBad:1485892543349657640>' : ''
+    
+    text += `### ${coal.name} - ${coalSeats}${coalEmoji}${coalHasMajority ? ' ⭐ MAJORITY' : ''}\n`
+    parties.forEach(p => {
+      let partyEmoji = ''
+      if (p.prevSeats !== undefined && p.prevSeats !== null) {
+        if (p.prevSeats > p.seats) partyEmoji = ' <:DecreaseBad:1485892543349657640>'
+        if (p.prevSeats < p.seats) partyEmoji = ' <:IncreaseGood:1485892458427453530>'
+      }
+      text += `- ${p.name} (${p.abbr}) - ${p.seats}${partyEmoji}\n`
+    })
+    text += `\n`
+  })
+  
+  // Unaffiliated parties
+  if (unaffiliated.length > 0) {
+    const unaffSeats = unaffiliated.reduce((s, p) => s + p.seats, 0)
+    text += `### Unaffiliated - ${unaffSeats}\n`
+    unaffiliated.forEach(p => {
+      let partyEmoji = ''
+      if (p.prevSeats !== undefined && p.prevSeats !== null) {
+        if (p.prevSeats > p.seats) partyEmoji = ' <:DecreaseBad:1485892543349657640>'
+        if (p.prevSeats < p.seats) partyEmoji = ' <:IncreaseGood:1485892458427453530>'
+      }
+      text += `- ${p.name} (${p.abbr}) - ${p.seats}${partyEmoji}\n`
+    })
+  }
+  
+  console.log("Final text:", text)
+  
+  // Capture parliament screenshot
+  ;(async () => {
+    try {
+      const parliamentElementId = electionType === 'chamber' ? 'chamber-parliament-display' : 'senate-parliament-display'
+      const parliamentElement = document.getElementById(parliamentElementId)
+      
+      if (parliamentElement) {
+        console.log(`Capturing ${parliamentElementId}...`)
+        const blob = await captureElections(parliamentElement)
+        console.log("Screenshot captured, sending to Discord with image...")
+        writeMessageInDiscord(text, test, blob)
+      } else {
+        console.log(`Element ${parliamentElementId} not found, sending text only`)
+        writeMessageInDiscord(text, test)
+      }
+    } catch (e) {
+      console.error("Error capturing screenshot:", e)
+      writeMessageInDiscord(text, test)
+    }
+  })()
+} 
 
   const runElection = () => {
     setChamberSaved(false);
@@ -3358,6 +3579,18 @@ function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, sen
   const handleSave = (type) => {
     const res = type === "chamber" ? results : senResults;
     if (!res) return;
+    const dataForDiscord = type==="chamber" ? {
+      seatTotals: res.seatTotals,
+      ranked: res.ranked.map(c=>({id:c.id,name:c.name,color:c.color})),
+      winner: res.ranked.map(c=>({id:c.id,name:c.name,color:c.color}))[0],
+    } : {
+      seatTotals: res.senTotals,
+      ranked: res.senRanked.map(c=>({id:c.id,name:c.name,color:c.color})),
+      winner: res.senRanked.map(c=>({id:c.id,name:c.name,color:c.color}))[0],
+    }
+    const electionTypeForDiscord = type === 'chamber' ? 'chamber' : 'senate';
+    const discordType = type === 'chamber' ? 'Parliament' : 'Senate';
+    writeElectionsResult(discordType, dataForDiscord, electionHistory, electionTypeForDiscord, coalitions, candidates, true);
     onSaveElection({
       id: Date.now(), season, year, turn, type,
       ranked:     (type==="chamber" ? res.ranked : res.senRanked).map(c=>({id:c.id,name:c.name,color:c.color})),
@@ -3371,7 +3604,7 @@ function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, sen
       },
       hasMajority: type==="chamber" ? res.hasMajority : res.hasSenMajority,
     });
-    if (type==="chamber") setChamberSaved(true); else setSenateSaved(true);
+      if (type==="chamber") setChamberSaved(true); else setSenateSaved(true);
   };
 
   return (
@@ -3389,7 +3622,8 @@ function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, sen
                   <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px",flexWrap:"wrap"}}>
                     <span style={{fontSize:"9px",letterSpacing:"3px",color:DIM,textTransform:"uppercase"}}>{el.type==="chamber"?"Chamber":"Senate"}</span>
                     <span style={{fontSize:"10px",color:SOFT}}>{el.season} {el.year}</span>
-                    <div style={{display:"flex",alignItems:"center",gap:"6px",marginLeft:"auto"}}>
+                    <button onClick={() => onDeleteElection(el.id)} style={{marginLeft:"auto",background:"rgba(200,80,60,0.2)",border:"1px solid rgba(200,80,60,0.4)",color:"#e08060",cursor:"pointer",fontSize:"8px",padding:"4px 8px",borderRadius:"3px",letterSpacing:"1px",textTransform:"uppercase",transition:"all 0.2s"}}>Delete</button>
+                    <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
                       <span style={{width:"8px",height:"8px",borderRadius:"50%",background:el.winner.color,display:"inline-block"}}/>
                       <span style={{fontSize:"13px",color:el.winner.color}}>{el.winner.name}</span>
                       <span style={{fontSize:"16px",fontWeight:"bold",color:"#e8dcc8"}}>{el.seatTotals[el.winner.id]}</span>
@@ -3456,7 +3690,7 @@ function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, sen
                 </div>
               </div>
             </div>
-            <div style={{marginBottom:"16px"}}><SemiParliament seatTotals={results.seatTotals} cands={results.ranked}/></div>
+            <div style={{marginBottom:"16px"}} id="chamber-parliament-display"><SemiParliament seatTotals={results.seatTotals} cands={results.ranked}/></div>
             {/* Per-party breakdown with delta */}
             <div style={{display:"flex",flexDirection:"column",gap:"6px",marginBottom:"14px"}}>
               {results.ranked.map(c => {
@@ -3560,6 +3794,7 @@ function ElectionTab({candidates, data, agitation, natUnrest, tariffs, turn, sen
               </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:"5px",marginBottom:"14px"}}>
+              <div style={{marginBottom:"12px"}} id="senate-parliament-display"><SemiParliament seatTotals={senResults.senTotals} cands={senResults.senRanked} total={SENATE_TOTAL} majority={SENATE_MAJORITY}/></div>
               {senResults.senRanked.map(c => {
                 const seats = senResults.senTotals[c.id]||0;
                 const pct   = Math.round(seats/SENATE_TOTAL*100);
@@ -5983,6 +6218,30 @@ function App() {
     }
   };
 
+  const handleDeleteElection = (electionId) => {
+    const newHistory = (electionHistory||[]).filter(e => e.id !== electionId);
+    setElectionHistory(newHistory);
+    try {
+      const blob = JSON.parse(localStorage.getItem("azzuria-gamestate") || "{}");
+      blob.electionHistory = newHistory;
+      blob.savedAt = Date.now();
+      localStorage.setItem("azzuria-gamestate", JSON.stringify(blob));
+    } catch(e) { console.error("Election localStorage delete failed:", e); }
+    if (window.location.protocol !== "file:") {
+      fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID + "/latest?t=" + Date.now(), {
+        headers: {"X-Access-Key": JSONBIN_ACCESS_KEY, "Cache-Control": "no-cache"},
+        cache: "no-store",
+      }).then(r => r.json()).then(pd => {
+        const merged = {...(pd.record || {}), electionHistory: newHistory, savedAt: Date.now()};
+        return fetch("https://api.jsonbin.io/v3/b/" + JSONBIN_BIN_ID, {
+          method: "PUT",
+          headers: {"Content-Type": "application/json", "X-Access-Key": JSONBIN_ACCESS_KEY},
+          body: JSON.stringify(merged),
+        });
+      }).catch(() => {});
+    }
+  };
+
   if (!loaded) return (
     <div style={{...PAGE, display:"flex", alignItems:"center", justifyContent:"center"}}>
       <div style={{fontSize:"10px", letterSpacing:"6px", color:"#5a4a30", textTransform:"uppercase"}}>Loading saved state...</div>
@@ -6014,7 +6273,7 @@ function App() {
       {tab===2 && <CandidatesTab data={data} setData={setData} candidates={candidates} setCandidates={setCandidates} activeCand={activeCand} setActiveCand={setActiveCand} agitation={agitation} setAgitation={setAgitation} natUnrest={natUnrest} tariffs={government.tariffs||0} turn={turn} pendingParties={pendingParties} setPendingParties={setPendingParties}/>}
       {tab===3 && <RegionsTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} regionDescs={regionDescs} setRegionDescs={setRegionDescs} tariffs={government.tariffs||0} turn={turn}/>}
       {tab===4 && <InfluenceTab data={data} setData={setData}/>}
-      {tab===5 && <ElectionTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} tariffs={government.tariffs||0} turn={turn} senateHolder={senateHolder} setSenateHolder={setSenateHolder} onSaveElection={handleSaveElection} electionHistory={electionHistory}/>}
+      {tab===5 && <ElectionTab candidates={candidates} data={data} agitation={agitation} natUnrest={natUnrest} tariffs={government.tariffs||0} turn={turn} senateHolder={senateHolder} setSenateHolder={setSenateHolder} onSaveElection={handleSaveElection} onDeleteElection={handleDeleteElection} electionHistory={electionHistory} coalitions={coalitions}/>}
       {tab===6 && <LawRegistryTab candidates={candidates} government={government}/>}
       {tab===7 && <GovernmentTab candidates={candidates} government={government} setGovernment={setGovernment} setData={setData} turn={turn} agitation={agitation} setAgitation={setAgitation} nations={nations} setNations={setNations} wars={wars} setWars={setWars} deals={deals} setDeals={setDeals}/>}
       {tab===8 && <NationsTab nations={nations} setNations={setNations} pendingNations={pendingNations} setPendingNations={setPendingNations} wars={wars} setWars={setWars} deals={deals} setDeals={setDeals} gmEvents={gmEvents} setGmEvents={setGmEvents} randomEventDeck={randomEventDeck} setRandomEventDeck={setRandomEventDeck} turnLog={turnLog}/>}
