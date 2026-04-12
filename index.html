@@ -2294,7 +2294,7 @@ function LawRegistryTab({candidates, government}) {
 
 
 // ── PARLIAMENT SEMICIRCLE ─────────────────────────────────────────────────────
-function SemiParliament({seatTotals, cands, total=TOTAL_SEATS, majority=MAJORITY}) {
+function SemiParliament({seatTotals, cands, total=TOTAL_SEATS, majority=MAJORITY, coalitions=[]}) {
   const leftClasses = [6, 7];   // Rural Workers, Factory Workers
   const rightClasses = [2, 4];  // Merchants, Church
   const leftTags = ["Land Reform", "State Intervention", "Cooperative Labour", "Grain Price Controls", "Public Works", "Industrialisation", "Railway Expansion", "Secularism", "Anti-Clericalism", "Popular Education", "Press Freedom", "Workers' Rights", "Women's Education", "Poor Relief", "Temperance", "Public Health", "Parliamentary Reform", "Federalism", "Expanded Suffrage", "Universal Suffrage", "Republican Sympathies", "Progressive", "Reformist", "Internationalist", "Mediation", "Peaceful Coexistence", "Defensive Posture", "Diplomatic Primacy"];
@@ -2341,10 +2341,35 @@ function SemiParliament({seatTotals, cands, total=TOTAL_SEATS, majority=MAJORITY
   }
   positions.sort((a,b)=> Math.abs(a.angle-b.angle)<0.001 ? a.row-b.row : a.angle-b.angle);
 
+  // Создать mapping: партия ID → информация о партии
+  const candMap = {};
+  sorted.forEach(c => { candMap[c.id] = c; });
+  
+  // Создать mapping: партия ID → коалиция
+  const partyToCoalition = {};
+  coalitions.forEach(coal => {
+    (coal.memberIds || []).forEach(pId => {
+      partyToCoalition[pId] = coal;
+    });
+  });
+
   const colors=[];
-  sorted.forEach(c=>{ for(let i=0;i<(seatTotals[c.id]||0);i++) colors.push(c.color); });
-  while(colors.length<total) colors.push("rgba(255,255,255,0.12)");
-  const dots=positions.map((p,i)=>({...p,color:colors[i]}));
+  const partyForSeat = []; // Track which party each seat belongs to
+  sorted.forEach(c=>{ 
+    for(let i=0;i<(seatTotals[c.id]||0);i++) {
+      colors.push(c.color); 
+      partyForSeat.push(c.id);
+    }
+  });
+  while(colors.length<total) {
+    colors.push("rgba(255,255,255,0.12)");
+    partyForSeat.push(null);
+  }
+  const dots=positions.map((p,i)=>{
+    const partyId = partyForSeat[i];
+    const coal = partyId ? partyToCoalition[partyId] : null;
+    return {...p, color: colors[i], stroke: coal ? coal.color : null};
+  });
 
   return (
     <div style={{background:"rgba(0,0,0,0.35)",borderRadius:"8px",padding:"10px 4px 2px",overflow:"hidden"}}>
@@ -2358,7 +2383,8 @@ function SemiParliament({seatTotals, cands, total=TOTAL_SEATS, majority=MAJORITY
         <text x={cx+3} y={cy-142} fill="rgba(201,168,76,0.8)" fontSize="7" fontFamily="Georgia,serif">MAJ</text>
         {dots.map((d,i)=>(
           <circle key={i} cx={d.x} cy={d.y} r="4.2"
-            fill={d.color} opacity={d.color==="rgba(255,255,255,0.12)"?.2:.9}/>
+            fill={d.color} opacity={d.color==="rgba(255,255,255,0.12)"?.2:.9}
+            stroke={d.stroke || "none"} strokeWidth={d.stroke ? "1.2" : "0"}/>
         ))}
       </svg>
     </div>
@@ -3655,7 +3681,7 @@ const writeElectionsResult = (type, data, electionHistory, electionType, coaliti
                       {el.hasMajority && <span style={{fontSize:"8px",color:"#6db87a",border:"1px solid rgba(109,184,122,0.4)",borderRadius:"3px",padding:"1px 5px",letterSpacing:"1px"}}>MAJORITY</span>}
                     </div>
                   </div>
-                  <SemiParliament seatTotals={el.seatTotals} cands={el.ranked}/>
+                  <SemiParliament seatTotals={el.seatTotals} cands={el.ranked} coalitions={coalitions}/>
                   <div style={{display:"flex",flexDirection:"column",gap:"5px",marginTop:"10px"}}>
                     {sortedR.map(r => {
                       const s   = el.seatTotals[r.id]||0;
@@ -3714,7 +3740,7 @@ const writeElectionsResult = (type, data, electionHistory, electionType, coaliti
                 </div>
               </div>
             </div>
-            <div style={{marginBottom:"16px"}} id="chamber-parliament-display"><SemiParliament seatTotals={results.seatTotals} cands={results.ranked}/></div>
+            <div style={{marginBottom:"16px"}} id="chamber-parliament-display"><SemiParliament seatTotals={results.seatTotals} cands={results.ranked} coalitions={coalitions}/></div>
             {/* Per-party breakdown with delta */}
             <div style={{display:"flex",flexDirection:"column",gap:"6px",marginBottom:"14px"}}>
               {results.ranked.map(c => {
@@ -3818,7 +3844,7 @@ const writeElectionsResult = (type, data, electionHistory, electionType, coaliti
               </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:"5px",marginBottom:"14px"}}>
-              <div style={{marginBottom:"12px"}} id="senate-parliament-display"><SemiParliament seatTotals={senResults.senTotals} cands={senResults.senRanked} total={SENATE_TOTAL} majority={SENATE_MAJORITY}/></div>
+              <div style={{marginBottom:"12px"}} id="senate-parliament-display"><SemiParliament seatTotals={senResults.senTotals} cands={senResults.senRanked} total={SENATE_TOTAL} majority={SENATE_MAJORITY} coalitions={coalitions}/></div>
               {senResults.senRanked.map(c => {
                 const seats = senResults.senTotals[c.id]||0;
                 const pct   = Math.round(seats/SENATE_TOTAL*100);
@@ -5353,7 +5379,7 @@ function HomeTab({turn, natUnrest, agitation, candidates, data, government, nati
                   <div style={{fontSize:"9px",letterSpacing:"4px",color:DIM,textTransform:"uppercase",flex:1}}>Chamber · {el.season} {el.year}</div>
                   {el.hasMajority && <span style={{fontSize:"8px",color:"#6db87a",border:"1px solid rgba(109,184,122,0.3)",borderRadius:"3px",padding:"1px 6px",letterSpacing:"1px"}}>MAJORITY</span>}
                 </div>
-                <div style={{marginBottom:"12px"}}><SemiParliament seatTotals={el.seatTotals} cands={el.ranked} total={el.totalSeats}/></div>
+                <div style={{marginBottom:"12px"}}><SemiParliament seatTotals={el.seatTotals} cands={el.ranked} total={el.totalSeats} coalitions={coalitions}/></div>
                 <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px",padding:"8px 12px",
                   background:"rgba(255,255,255,0.02)",border:`1px solid ${winner.color}30`,borderRadius:"4px"}}>
                   <span style={{width:"9px",height:"9px",borderRadius:"50%",background:winner.color,flexShrink:0,display:"inline-block"}}/>
